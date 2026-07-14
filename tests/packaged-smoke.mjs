@@ -25,6 +25,7 @@ try {
   const diagnostics = await page.locator('.diagnostics').innerText()
   assert.match(diagnostics, /v0\.13\.2/)
   assert.match(diagnostics, /Codex CLI/)
+  assert.match(diagnostics, /Codex 项目识别/)
   writeFileSync(join(artifacts, 'packaged-smoke.json'), JSON.stringify({ ok: true, executable, diagnostics }, null, 2), 'utf8')
   process.stdout.write('PACKAGED SMOKE PASS: bundled ActivityWatch and diagnostics are available\n')
 } finally {

@@ -1,38 +1,10 @@
-import { existsSync } from 'node:fs'
 import { execFileSync, spawn } from 'node:child_process'
-import { join } from 'node:path'
 import type { ActivitySummary, DailyRecord } from '../shared/contracts'
-
-function resolveCodex(): string {
-  if (process.platform === 'win32') {
-    const npmNative = join(
-      process.env.APPDATA ?? '',
-      'npm',
-      'node_modules',
-      '@openai',
-      'codex',
-      'node_modules',
-      '@openai',
-      'codex-win32-x64',
-      'vendor',
-      'x86_64-pc-windows-msvc',
-      'bin',
-      'codex.exe'
-    )
-    if (existsSync(npmNative)) return npmNative
-    const candidates = execFileSync('where.exe', ['codex.exe'], { encoding: 'utf8', windowsHide: true })
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-    const executable = candidates.find((candidate) => candidate.toLowerCase().endsWith('.exe') && existsSync(candidate))
-    if (executable) return executable
-  }
-  return 'codex'
-}
+import { resolveCodexExecutable } from './codex-executable'
 
 export async function codexDiagnostics(): Promise<{ ok: boolean; detail: string }> {
   try {
-    const executable = resolveCodex()
+    const executable = resolveCodexExecutable()
     const version = execFileSync(executable, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim()
     const login = execFileSync(executable, ['login', 'status'], { encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim()
     return { ok: /logged in/i.test(login), detail: `${version} · ${login}` }
@@ -41,13 +13,13 @@ export async function codexDiagnostics(): Promise<{ ok: boolean; detail: string 
   }
 }
 
-function buildPrompt(record: DailyRecord, activity: ActivitySummary): string {
+export function buildCodexReviewPayload(record: DailyRecord, activity: ActivitySummary) {
   const outcomes = record.outcomes.map((outcome) => ({
     title: outcome.title,
     priority: outcome.id === record.priorityOutcomeId,
     status: record.review?.outcomeStatuses[outcome.id] ?? 'pending'
   }))
-  const payload = {
+  return {
     date: record.date,
     outcomes,
     subjectiveScore: record.review?.subjectiveScore ?? null,
@@ -55,9 +27,20 @@ function buildPrompt(record: DailyRecord, activity: ActivitySummary): string {
     tomorrowIntent: record.review?.tomorrowIntent ?? '',
     activeMinutes: Math.round(activity.activeSeconds / 60),
     afkMinutes: Math.round(activity.afkSeconds / 60),
+    codexAttentionMinutes: Math.round(activity.codexActiveSeconds / 60),
+    codexClassificationCoveragePercent: activity.codexCoveragePercent,
+    projectUsage: activity.projects.map((project) => ({
+      project: project.label,
+      minutes: Math.round(project.seconds / 60),
+      classified: project.classified
+    })),
     appUsage: activity.apps.slice(0, 12).map((app) => ({ app: app.app, minutes: Math.round(app.seconds / 60) })),
     offlineNotes: record.afkNotes.map((note) => note.note).filter(Boolean)
   }
+}
+
+function buildPrompt(record: DailyRecord, activity: ActivitySummary): string {
+  const payload = buildCodexReviewPayload(record, activity)
   return [
     '你是一个务实的个人效率复盘教练。根据下面经过脱敏和聚合的本机数据，用中文输出今日复盘。',
     '不要把离开电脑自动判定为低效；以重要成果完成情况为第一判断依据。',
@@ -68,7 +51,7 @@ function buildPrompt(record: DailyRecord, activity: ActivitySummary): string {
 }
 
 export async function runCodexReview(record: DailyRecord, activity: ActivitySummary): Promise<string> {
-  const executable = resolveCodex()
+  const executable = resolveCodexExecutable()
   const args = ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only', '--json', '-']
   const prompt = buildPrompt(record, activity)
   return await new Promise<string>((resolve, reject) => {

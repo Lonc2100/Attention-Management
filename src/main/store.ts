@@ -1,13 +1,25 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { DailyRecord, Settings } from '../shared/contracts'
+import type { CodexContextSample, DailyRecord, Settings } from '../shared/contracts'
 import { emptyRecord } from './date'
 
-interface PersistedData {
-  version: 1
+type PersistedDataV2 = {
+  version: 2
   settings: Settings
   records: Record<string, DailyRecord>
+  codexContextSamples: Record<string, CodexContextSample[]>
+  projectAliases: Record<string, string>
 }
+type PersistedDataInput = {
+  version?: number
+  settings?: Partial<Settings>
+  records?: Record<string, DailyRecord>
+  codexContextSamples?: Record<string, CodexContextSample[]>
+  projectAliases?: Record<string, string>
+}
+
+const MAX_CONTEXT_SAMPLES_PER_DAY = 5_000
+const MAX_CONTEXT_DAYS = 120
 
 export const defaultSettings: Settings = {
   launchAtLogin: true,
@@ -18,10 +30,12 @@ export const defaultSettings: Settings = {
 }
 
 export class AppStore {
-  private data: PersistedData
+  private data: PersistedDataV2
+  private migrationRequired = false
 
   constructor(private readonly filePath: string) {
     this.data = this.load()
+    if (this.migrationRequired) this.save()
   }
 
   get path(): string {
@@ -39,11 +53,12 @@ export class AppStore {
   }
 
   getRecord(date: string): DailyRecord {
-    if (!this.data.records[date]) {
+    const existing = this.data.records[date]
+    if (!existing) {
       this.data.records[date] = emptyRecord(date)
       this.save()
     }
-    return structuredClone(this.data.records[date])
+    return structuredClone(this.data.records[date] ?? emptyRecord(date))
   }
 
   updateRecord(date: string, updater: (record: DailyRecord) => DailyRecord): DailyRecord {
@@ -54,20 +69,64 @@ export class AppStore {
     return structuredClone(next)
   }
 
-  private load(): PersistedData {
+  getCodexContextSamples(date: string): CodexContextSample[] {
+    return structuredClone(this.data.codexContextSamples[date] ?? [])
+  }
+
+  addCodexContextSample(date: string, sample: CodexContextSample): boolean {
+    const samples = this.data.codexContextSamples[date] ?? []
+    const last = samples[samples.length - 1]
+    if (last && last.threadId === sample.threadId && last.recencyAt === sample.recencyAt) return false
+    this.data.codexContextSamples[date] = [...samples, sample]
+      .sort((a, b) => a.detectedAt - b.detectedAt)
+      .slice(-MAX_CONTEXT_SAMPLES_PER_DAY)
+    this.pruneContextDays()
+    this.save()
+    return true
+  }
+
+  getProjectAliases(): Record<string, string> {
+    return { ...this.data.projectAliases }
+  }
+
+  setProjectAlias(projectKey: string, label: string): Record<string, string> {
+    const key = projectKey.trim()
+    const value = label.trim().slice(0, 60)
+    if (!key || key === 'unclassified') throw new Error('这个项目不能重命名')
+    if (value) this.data.projectAliases[key] = value
+    else delete this.data.projectAliases[key]
+    this.save()
+    return this.getProjectAliases()
+  }
+
+  private load(): PersistedDataV2 {
     try {
       if (existsSync(this.filePath)) {
-        const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<PersistedData>
+        const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as PersistedDataInput
+        this.migrationRequired = parsed.version !== 2
         return {
-          version: 1,
+          version: 2,
           settings: { ...defaultSettings, ...parsed.settings, aiProvider: 'codex-cli' },
-          records: parsed.records ?? {}
+          records: parsed.records ?? {},
+          codexContextSamples: parsed.codexContextSamples ?? {},
+          projectAliases: parsed.projectAliases ?? {}
         }
       }
     } catch (error) {
       console.error('Failed to load app data:', error)
     }
-    return { version: 1, settings: defaultSettings, records: {} }
+    return {
+      version: 2,
+      settings: { ...defaultSettings },
+      records: {},
+      codexContextSamples: {},
+      projectAliases: {}
+    }
+  }
+
+  private pruneContextDays(): void {
+    const dates = Object.keys(this.data.codexContextSamples).sort().reverse()
+    for (const date of dates.slice(MAX_CONTEXT_DAYS)) delete this.data.codexContextSamples[date]
   }
 
   private save(): void {

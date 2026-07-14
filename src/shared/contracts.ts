@@ -45,6 +45,59 @@ export interface ActivityEvent {
   data: Record<string, string>
 }
 
+export type ProjectIdentitySource = 'folder' | 'thread' | 'fallback' | 'alias'
+
+export interface CodexThreadSummary {
+  id: string
+  name: string | null
+  cwd: string
+  recencyAt: number
+  source: 'vscode'
+}
+
+export interface CodexContextSample {
+  detectedAt: number
+  threadId: string
+  threadName: string | null
+  cwd: string
+  recencyAt: number
+  source: 'vscode'
+  projectKey: string
+  projectLabel: string
+  identitySource: Exclude<ProjectIdentitySource, 'alias'>
+}
+
+export interface ProjectUsage {
+  key: string
+  label: string
+  seconds: number
+  classified: boolean
+  identitySource: ProjectIdentitySource | 'unclassified'
+  threadCount: number
+  latestThreadName: string | null
+  cwd: string | null
+}
+
+export interface CodexCurrentContext {
+  threadId: string
+  threadName: string | null
+  cwd: string
+  projectKey: string
+  projectLabel: string
+  identitySource: ProjectIdentitySource
+  detectedAt: number
+}
+
+export interface CodexContextStatus {
+  available: boolean
+  foreground: boolean
+  active: boolean
+  provider: 'codex-app-server'
+  current: CodexCurrentContext | null
+  lastDetectedAt: number | null
+  error: string | null
+}
+
 export interface AppUsage {
   app: string
   seconds: number
@@ -66,6 +119,12 @@ export interface ActivitySummary {
   activeSeconds: number
   afkSeconds: number
   apps: AppUsage[]
+  projects: ProjectUsage[]
+  codexActiveSeconds: number
+  codexClassifiedSeconds: number
+  codexUnclassifiedSeconds: number
+  codexCoveragePercent: number
+  codexContext: CodexContextStatus
   afkPeriods: AfkPeriod[]
   recentEvents: ActivityEvent[]
   error: string | null
@@ -83,6 +142,7 @@ export interface Diagnostics {
   afkWatcher: { ok: boolean; detail: string }
   storage: { ok: boolean; detail: string }
   codexCli: { ok: boolean; detail: string }
+  codexContext: { ok: boolean; detail: string }
   launchAtLogin: { ok: boolean; detail: string }
 }
 
@@ -107,6 +167,11 @@ export interface ReviewInput {
   tomorrowIntent: string
 }
 
+export interface ProjectAliasInput {
+  projectKey: string
+  label: string
+}
+
 export interface TimeEfficiencyApi {
   bootstrap(): Promise<BootstrapData>
   refreshActivity(date?: string): Promise<ActivitySummary>
@@ -117,6 +182,7 @@ export interface TimeEfficiencyApi {
   setTracking(enabled: boolean): Promise<ActivitySummary>
   runAiReview(): Promise<{ text: string }>
   getDiagnostics(): Promise<Diagnostics>
+  setProjectAlias(input: ProjectAliasInput): Promise<ActivitySummary>
   showWindow(): Promise<void>
 }
 
@@ -130,5 +196,6 @@ export const IPC = {
   setTracking: 'activity:set-tracking',
   runAiReview: 'ai:run-review',
   getDiagnostics: 'diagnostics:get',
+  setProjectAlias: 'projects:set-alias',
   showWindow: 'window:show'
 } as const

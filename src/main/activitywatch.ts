@@ -1,7 +1,13 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import type { ActivityEvent, ActivitySummary, AfkNote } from '../shared/contracts'
+import type {
+  ActivityEvent,
+  ActivitySummary,
+  AfkNote,
+  CodexContextSample,
+  CodexContextStatus
+} from '../shared/contracts'
 import { aggregateActivity, disconnectedSummary } from './aggregate'
 import { dayBounds } from './date'
 
@@ -18,6 +24,13 @@ interface ManagedProcess {
   process: ChildProcessWithoutNullStreams
 }
 
+export interface CurrentActivityState {
+  app: string
+  title: string
+  isAfk: boolean
+  fresh?: boolean
+}
+
 const API = 'http://127.0.0.1:5600/api/0'
 
 function findExecutable(root: string, names: string[]): string | null {
@@ -25,7 +38,8 @@ function findExecutable(root: string, names: string[]): string | null {
   const wanted = new Set(names.map((name) => name.toLowerCase()))
   const stack = [root]
   while (stack.length) {
-    const current = stack.pop()!
+    const current = stack.pop()
+    if (!current) continue
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = join(current, entry.name)
       if (entry.isDirectory()) stack.push(full)
@@ -84,7 +98,13 @@ export class ActivityWatchManager {
     }
   }
 
-  async getSummary(date: string, notes: AfkNote[]): Promise<ActivitySummary> {
+  async getSummary(
+    date: string,
+    notes: AfkNote[],
+    contextSamples: CodexContextSample[] = [],
+    projectAliases: Record<string, string> = {},
+    codexContext?: CodexContextStatus
+  ): Promise<ActivitySummary> {
     try {
       await waitForServer(1500)
       const buckets = await this.getBuckets()
@@ -94,10 +114,16 @@ export class ActivityWatchManager {
         windowBucket ? this.getEvents(windowBucket.id, date) : Promise.resolve([]),
         afkBucket ? this.getEvents(afkBucket.id, date) : Promise.resolve([])
       ])
-      return aggregateActivity(windowEvents, afkEvents, notes, this.tracking, {
-        window: windowBucket?.id ?? null,
-        afk: afkBucket?.id ?? null
-      })
+      return aggregateActivity(
+        windowEvents,
+        afkEvents,
+        notes,
+        this.tracking,
+        { window: windowBucket?.id ?? null, afk: afkBucket?.id ?? null },
+        contextSamples,
+        projectAliases,
+        codexContext
+      )
     } catch (error) {
       return disconnectedSummary(this.tracking, error)
     }
@@ -120,6 +146,32 @@ export class ActivityWatchManager {
       return bucket ? { ok: true, detail: bucket.id } : { ok: false, detail: `没有 ${type} 采集桶` }
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  async getCurrentState(): Promise<CurrentActivityState> {
+    await waitForServer(1500)
+    const buckets = await this.getBuckets()
+    const windowBucket = this.newestBucket(buckets, 'currentwindow')
+    const afkBucket = this.newestBucket(buckets, 'afkstatus')
+    if (!windowBucket || !afkBucket) {
+      return { app: '', title: '', isAfk: true, fresh: false }
+    }
+    const [windowEvent, afkEvent] = await Promise.all([
+      this.getLatestEvent(windowBucket.id),
+      this.getLatestEvent(afkBucket.id)
+    ])
+    const now = Date.now()
+    const windowFresh = windowEvent ? this.eventEnd(windowEvent) >= now - 15_000 : false
+    const afkFresh = afkEvent ? this.eventEnd(afkEvent) >= now - 15_000 : false
+    if (!windowEvent || !windowFresh || !afkEvent || !afkFresh) {
+      return { app: '', title: '', isAfk: true, fresh: false }
+    }
+    return {
+      app: windowEvent.data.app ?? '',
+      title: windowEvent.data.title ?? '',
+      isAfk: afkEvent.data.status === 'afk',
+      fresh: true
     }
   }
 
@@ -180,5 +232,18 @@ export class ActivityWatchManager {
     })
     if (!response.ok) throw new Error(`读取 ActivityWatch events 失败：HTTP ${response.status}`)
     return (await response.json()) as ActivityEvent[]
+  }
+
+  private async getLatestEvent(bucketId: string): Promise<ActivityEvent | null> {
+    const response = await fetch(`${API}/buckets/${encodeURIComponent(bucketId)}/events?limit=1`, {
+      signal: AbortSignal.timeout(3000)
+    })
+    if (!response.ok) throw new Error(`读取 ActivityWatch 当前状态失败：HTTP ${response.status}`)
+    const events = (await response.json()) as ActivityEvent[]
+    return events[0] ?? null
+  }
+
+  private eventEnd(event: ActivityEvent): number {
+    return new Date(event.timestamp).getTime() + event.duration * 1000
   }
 }

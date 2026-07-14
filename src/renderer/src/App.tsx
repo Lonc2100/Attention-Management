@@ -8,6 +8,7 @@ import type {
   OutcomeStatus,
   Settings
 } from '../../shared/contracts'
+import { CodexContextBanner, ProjectAttentionPanel } from './CodexAttention'
 
 type View = 'today' | 'plan' | 'review' | 'diagnostics' | 'settings'
 
@@ -19,6 +20,20 @@ const EMPTY_ACTIVITY: ActivitySummary = {
   activeSeconds: 0,
   afkSeconds: 0,
   apps: [],
+  projects: [],
+  codexActiveSeconds: 0,
+  codexClassifiedSeconds: 0,
+  codexUnclassifiedSeconds: 0,
+  codexCoveragePercent: 0,
+  codexContext: {
+    available: false,
+    foreground: false,
+    active: false,
+    provider: 'codex-app-server',
+    current: null,
+    lastDetectedAt: null,
+    error: null
+  },
   afkPeriods: [],
   recentEvents: [],
   error: null,
@@ -63,7 +78,7 @@ export default function App() {
       } catch {
         // The visible status remains the last confirmed state.
       }
-    }, 30_000)
+    }, 15_000)
     return () => clearInterval(timer)
   }, [])
 
@@ -129,16 +144,16 @@ function Today({ data, busy, setView, run, setActivity, onReload }: {
   setActivity: (activity: ActivitySummary) => void
   onReload: () => Promise<void>
 }) {
-  const top = data.activity.apps[0]
   return <>
     {(data.reminders.morningDue || data.reminders.eveningDue) && <section className="reminder">
       <div><strong>{data.reminders.eveningDue ? '你错过了晚间复盘时间' : '今天还没有确认计划'}</strong><p>这是根据本地完成状态生成的补提醒，不依赖关机时运行。</p></div>
       <button className="primary" onClick={() => setView(data.reminders.eveningDue ? 'review' : 'plan')}>现在完成</button>
     </section>}
+    <CodexContextBanner activity={data.activity} />
     <section className="metrics">
       <Metric label="电脑活跃" value={duration(data.activity.activeSeconds)} note="已排除检测到的 AFK" />
-      <Metric label="离开电脑" value={duration(data.activity.afkSeconds)} note="不自动等于低效率" />
-      <Metric label="使用最多" value={top?.app ?? '暂无数据'} note={top ? duration(top.seconds) : '等待真实事件'} />
+      <Metric label="Codex 注意力" value={duration(data.activity.codexActiveSeconds)} note="只计算前台且非 AFK" />
+      <Metric label="项目分类覆盖" value={`${data.activity.codexCoveragePercent}%`} note={data.activity.codexUnclassifiedSeconds ? `${duration(data.activity.codexUnclassifiedSeconds)} 待分类` : '当前没有待分类时间'} />
       <Metric label="重要成果" value={`${data.record.outcomes.length} / 3`} note={data.record.review ? '今日已复盘' : '以完成结果为准'} />
     </section>
     <section className="grid two">
@@ -146,10 +161,11 @@ function Today({ data, busy, setView, run, setActivity, onReload }: {
         <div className="panel-head"><div><p className="eyebrow">RESULTS FIRST</p><h2>今天最重要的成果</h2></div><button className="text-button" onClick={() => setView('plan')}>编辑</button></div>
         {data.record.outcomes.length ? <div className="outcome-list">{data.record.outcomes.map((outcome) => <div className="outcome" key={outcome.id}><span className={outcome.id === data.record.priorityOutcomeId ? 'priority-dot' : 'dot'} /> <div><strong>{outcome.title}</strong><small>{outcome.id === data.record.priorityOutcomeId ? '绝对优先项' : '重要成果'}</small></div></div>)}</div> : <Empty text="还没有计划。先写下今天必须产生的结果。" action="开始早间计划" onClick={() => setView('plan')} />}
       </article>
-      <article className="panel">
-        <div className="panel-head"><div><p className="eyebrow">REAL DATA</p><h2>应用时间</h2></div><button className="text-button" disabled={busy === 'refresh'} onClick={() => run('refresh', async () => setActivity(await window.timeEfficiency.refreshActivity()))}>{busy === 'refresh' ? '刷新中…' : '刷新'}</button></div>
-        {!data.activity.connected ? <Empty text={data.activity.error ?? 'ActivityWatch 尚未连接。'} action="查看诊断" onClick={() => setView('diagnostics')} /> : data.activity.apps.length ? <div className="usage-list">{data.activity.apps.slice(0, 8).map((app) => <div key={app.app}><div><strong>{app.app}</strong><span>{duration(app.seconds)}</span></div><div className="bar"><i style={{ width: `${Math.max(4, (app.seconds / data.activity.apps[0].seconds) * 100)}%` }} /></div><small title={app.topTitles[0]?.title}>{app.topTitles[0]?.title}</small></div>)}</div> : <Empty text="连接成功，正在等待第一批窗口事件。" />}
-      </article>
+      <ProjectAttentionPanel activity={data.activity} busy={busy} run={run} onChange={setActivity} />
+    </section>
+    <section className="panel app-panel">
+      <div className="panel-head"><div><p className="eyebrow">REAL DATA</p><h2>全部应用时间</h2></div><button className="text-button" disabled={busy === 'refresh'} onClick={() => run('refresh', async () => setActivity(await window.timeEfficiency.refreshActivity()))}>{busy === 'refresh' ? '刷新中…' : '刷新'}</button></div>
+      {!data.activity.connected ? <Empty text={data.activity.error ?? 'ActivityWatch 尚未连接。'} action="查看诊断" onClick={() => setView('diagnostics')} /> : data.activity.apps.length ? <div className="usage-list app-usage">{data.activity.apps.slice(0, 8).map((app) => <div key={app.app}><div><strong>{app.app}</strong><span>{duration(app.seconds)}</span></div><div className="bar"><i style={{ width: `${Math.max(4, (app.seconds / data.activity.apps[0].seconds) * 100)}%` }} /></div><small title={app.topTitles[0]?.title}>{app.topTitles[0]?.title}</small></div>)}</div> : <Empty text="连接成功，正在等待第一批窗口事件。" />}
     </section>
     <section className="panel">
       <div className="panel-head"><div><p className="eyebrow">CONTROL</p><h2>采集控制</h2></div><span className="muted">更新于 {clock(data.activity.updatedAt)}</span></div>
@@ -176,11 +192,15 @@ function ReviewView({ data, busy, run, onReload }: { data: BootstrapData; busy: 
   const [summary, setSummary] = useState(data.record.review?.summary ?? '')
   const [tomorrow, setTomorrow] = useState(data.record.review?.tomorrowIntent ?? '')
   const [ai, setAi] = useState(data.record.aiAnalysis ?? '')
-  const saveAfk = (period: AfkPeriod) => {
-    const note = window.prompt('这段离开电脑的时间，你在做什么？', period.note ?? '')
-    if (note === null) return
-    void run('afk', async () => { await window.timeEfficiency.saveAfkNote({ id: period.start, start: period.start, end: period.end, note }); await onReload() })
-  }
+  const [editingAfk, setEditingAfk] = useState<AfkPeriod | null>(null)
+  const [afkNote, setAfkNote] = useState('')
+  const beginAfkEdit = (period: AfkPeriod) => { setEditingAfk(period); setAfkNote(period.note ?? '') }
+  const saveAfk = () => void run('afk', async () => {
+    if (!editingAfk) return
+    await window.timeEfficiency.saveAfkNote({ id: editingAfk.start, start: editingAfk.start, end: editingAfk.end, note: afkNote })
+    setEditingAfk(null)
+    await onReload()
+  })
   return <div className="grid review-grid">
     <section className="panel form-panel">
       <div className="panel-head"><div><p className="eyebrow">5 MINUTES</p><h2>结果先于时长</h2></div></div>
@@ -192,15 +212,15 @@ function ReviewView({ data, busy, run, onReload }: { data: BootstrapData; busy: 
       <button className="primary full" disabled={busy === 'review'} onClick={() => run('review', async () => { await window.timeEfficiency.saveReview({ outcomeStatuses: statuses, subjectiveScore: score, summary, tomorrowIntent: tomorrow }); await onReload() })}>{busy === 'review' ? '保存中…' : '保存今日复盘'}</button>
     </section>
     <div className="stack">
-      <section className="panel"><div className="panel-head"><div><p className="eyebrow">AFK IS NOT FAILURE</p><h2>离开电脑</h2></div></div>{data.activity.afkPeriods.length ? <div className="afk-list">{data.activity.afkPeriods.slice(0, 8).map((period) => <button key={period.start} onClick={() => saveAfk(period)}><span>{clock(period.start)}–{clock(period.end)}</span><strong>{duration(period.seconds)}</strong><small>{period.note || '点击补记线下活动'}</small></button>)}</div> : <p className="muted">今天还没有检测到离开时段。</p>}</section>
-      <section className="panel ai-panel"><div className="panel-head"><div><p className="eyebrow">CODEX CLI · REAL CALL</p><h2>AI 复盘建议</h2></div></div>{ai ? <div className="ai-answer">{ai}</div> : <p className="muted">只发送应用时长聚合、成果状态和你写的复盘，不发送完整窗口标题流水。</p>}<button className="secondary full" disabled={busy === 'ai'} onClick={() => run('ai', async () => setAi((await window.timeEfficiency.runAiReview()).text))}>{busy === 'ai' ? 'Codex 正在分析…' : ai ? '重新分析' : '调用 Codex 生成复盘'}</button></section>
+      <section className="panel"><div className="panel-head"><div><p className="eyebrow">AFK IS NOT FAILURE</p><h2>离开电脑</h2></div></div>{data.activity.afkPeriods.length ? <div className="afk-list">{data.activity.afkPeriods.slice(0, 8).map((period) => <button key={period.start} onClick={() => beginAfkEdit(period)}><span>{clock(period.start)}–{clock(period.end)}</span><strong>{duration(period.seconds)}</strong><small>{period.note || '点击补记线下活动'}</small></button>)}</div> : <p className="muted">今天还没有检测到离开时段。</p>}{editingAfk && <div className="inline-editor"><label><span>这段时间你在做什么？</span><input autoFocus value={afkNote} onChange={(event) => setAfkNote(event.target.value)} placeholder="如：散步、吃饭、线下讨论" /></label><div><button className="secondary" onClick={() => setEditingAfk(null)}>取消</button><button className="primary" disabled={busy === 'afk'} onClick={saveAfk}>{busy === 'afk' ? '保存中…' : '保存记录'}</button></div></div>}</section>
+      <section className="panel ai-panel"><div className="panel-head"><div><p className="eyebrow">CODEX CLI · REAL CALL</p><h2>AI 复盘建议</h2></div></div>{ai ? <div className="ai-answer">{ai}</div> : <p className="muted">只发送项目/应用时长聚合、成果状态和你写的复盘；不发送任务 ID、文件夹路径或完整窗口标题流水。</p>}<button className="secondary full" disabled={busy === 'ai'} onClick={() => run('ai', async () => setAi((await window.timeEfficiency.runAiReview()).text))}>{busy === 'ai' ? 'Codex 正在分析…' : ai ? '重新分析' : '调用 Codex 生成复盘'}</button></section>
     </div>
   </div>
 }
 
 function DiagnosticsView({ initial, busy, run }: { initial: Diagnostics; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void> }) {
   const [items, setItems] = useState(initial)
-  return <section className="panel"><div className="panel-head"><div><p className="eyebrow">NO FAKE GREEN LIGHTS</p><h2>真实链路状态</h2></div><button className="secondary" disabled={busy === 'diagnostics'} onClick={() => run('diagnostics', async () => setItems(await window.timeEfficiency.getDiagnostics()))}>{busy === 'diagnostics' ? '检测中…' : '重新检测'}</button></div><div className="diagnostics">{Object.entries(items).map(([key, value]) => <div key={key}><span className={value.ok ? 'ok' : 'bad'}>{value.ok ? '✓' : '!'}</span><div><strong>{({ activityWatch: 'ActivityWatch 服务', windowWatcher: '窗口采集桶', afkWatcher: 'AFK 采集桶', storage: '本地数据', codexCli: 'Codex CLI', launchAtLogin: 'Windows 自启动' } as Record<string, string>)[key]}</strong><small>{value.detail}</small></div></div>)}</div></section>
+  return <section className="panel"><div className="panel-head"><div><p className="eyebrow">NO FAKE GREEN LIGHTS</p><h2>真实链路状态</h2></div><button className="secondary" disabled={busy === 'diagnostics'} onClick={() => run('diagnostics', async () => setItems(await window.timeEfficiency.getDiagnostics()))}>{busy === 'diagnostics' ? '检测中…' : '重新检测'}</button></div><div className="diagnostics">{Object.entries(items).map(([key, value]) => <div key={key}><span className={value.ok ? 'ok' : 'bad'}>{value.ok ? '✓' : '!'}</span><div><strong>{({ activityWatch: 'ActivityWatch 服务', windowWatcher: '窗口采集桶', afkWatcher: 'AFK 采集桶', storage: '本地数据', codexCli: 'Codex CLI', codexContext: 'Codex 项目识别', launchAtLogin: 'Windows 自启动' } as Record<string, string>)[key]}</strong><small>{value.detail}</small></div></div>)}</div></section>
 }
 
 function SettingsView({ settings, busy, run, setSettings }: { settings: Settings; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; setSettings: (settings: Settings) => void }) {

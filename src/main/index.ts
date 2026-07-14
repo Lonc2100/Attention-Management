@@ -3,6 +3,8 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, shell, Tr
 import type { AfkNote, PlanInput, ReviewInput, Settings } from '../shared/contracts'
 import { IPC } from '../shared/contracts'
 import { ActivityWatchManager } from './activitywatch'
+import { CodexAppServerClient } from './codex-app-server'
+import { CodexContextTracker } from './codex-context-tracker'
 import { codexDiagnostics, runCodexReview } from './codex'
 import { localDateKey, reminderState } from './date'
 import { AppStore } from './store'
@@ -12,6 +14,7 @@ let tray: Tray | null = null
 let quitting = false
 let store: AppStore
 let activityWatch: ActivityWatchManager
+let codexContextTracker: CodexContextTracker
 const notified = new Set<string>()
 const e2eMode = process.env.TIME_EFFICIENCY_E2E === '1'
 const startHidden = process.argv.includes('--hidden')
@@ -94,17 +97,36 @@ async function diagnostics() {
     codexDiagnostics()
   ])
   const login = app.getLoginItemSettings()
+  const contextStatus = codexContextTracker?.getStatus()
+  const contextDetail = contextStatus?.current
+    ? `${contextStatus.current.projectLabel} / ${contextStatus.current.threadName ?? '未命名对话'}`
+    : contextStatus?.error ?? '等待 Codex 首次处于前台且用户非 AFK 时自动识别'
   return {
     activityWatch: server,
     windowWatcher,
     afkWatcher,
     storage: { ok: true, detail: store.path },
     codexCli: codex,
+    codexContext: {
+      ok: contextStatus?.available ?? false,
+      detail: contextDetail
+    },
     launchAtLogin: {
       ok: login.openAtLogin === settings.launchAtLogin,
       detail: login.openAtLogin ? '已启用 Windows 登录自启' : '未启用 Windows 登录自启'
     }
   }
+}
+
+async function activitySummary(date: string) {
+  const record = store.getRecord(date)
+  return activityWatch.getSummary(
+    date,
+    record.afkNotes,
+    store.getCodexContextSamples(date),
+    store.getProjectAliases(),
+    codexContextTracker?.getStatus()
+  )
 }
 
 async function bootstrap() {
@@ -115,7 +137,7 @@ async function bootstrap() {
     date,
     record,
     settings,
-    activity: await activityWatch.getSummary(date, record.afkNotes),
+    activity: await activitySummary(date),
     reminders: reminderState(record, settings),
     diagnostics: await diagnostics()
   }
@@ -125,7 +147,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.bootstrap, bootstrap)
   ipcMain.handle(IPC.refreshActivity, async (_event, date?: string) => {
     const key = date || localDateKey()
-    return activityWatch.getSummary(key, store.getRecord(key).afkNotes)
+    return activitySummary(key)
   })
   ipcMain.handle(IPC.savePlan, (_event, input: PlanInput) => {
     const outcomes = input.outcomes.map((item) => ({ ...item, title: item.title.trim() })).filter((item) => item.title).slice(0, 3)
@@ -160,18 +182,25 @@ function registerIpc(): void {
     store.updateSettings({ trackingEnabled: enabled })
     await activityWatch.setTracking(enabled)
     const date = localDateKey()
-    return activityWatch.getSummary(date, store.getRecord(date).afkNotes)
+    return activitySummary(date)
   })
   ipcMain.handle(IPC.runAiReview, async () => {
     const date = localDateKey()
     const record = store.getRecord(date)
-    const activity = await activityWatch.getSummary(date, record.afkNotes)
+    const activity = await activitySummary(date)
     if (!activity.connected) throw new Error(`ActivityWatch 未连接：${activity.error}`)
     const text = await runCodexReview(record, activity)
     store.updateRecord(date, (current) => ({ ...current, aiAnalysis: text }))
     return { text }
   })
   ipcMain.handle(IPC.getDiagnostics, diagnostics)
+  ipcMain.handle(IPC.setProjectAlias, async (_event, input: { projectKey?: unknown; label?: unknown }) => {
+    if (typeof input?.projectKey !== 'string' || typeof input?.label !== 'string') {
+      throw new Error('项目名称参数无效')
+    }
+    store.setProjectAlias(input.projectKey, input.label)
+    return activitySummary(localDateKey())
+  })
   ipcMain.handle(IPC.showWindow, () => showWindow())
 }
 
@@ -196,6 +225,7 @@ else {
   app.whenReady().then(async () => {
     store = new AppStore(join(app.getPath('userData'), 'time-efficiency-data.json'))
     activityWatch = new ActivityWatchManager(runtimeRoot())
+    codexContextTracker = new CodexContextTracker(activityWatch, new CodexAppServerClient(), store)
     const settings = store.getSettings()
     applyLaunchAtLogin(settings.launchAtLogin)
     registerIpc()
@@ -204,6 +234,7 @@ else {
     } catch (error) {
       console.error('ActivityWatch startup failed:', error)
     }
+    codexContextTracker.start(() => localDateKey())
     createWindow()
     if (!e2eMode) createTray()
     if (!e2eMode) {
@@ -215,6 +246,7 @@ else {
 
 app.on('before-quit', () => {
   quitting = true
+  codexContextTracker?.stop()
   activityWatch?.stopAll()
 })
 

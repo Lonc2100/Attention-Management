@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type AfkNote, type PlanInput, type ReviewInput, type Settings, type TimeEfficiencyApi } from '../shared/contracts'
+import {
+  IPC,
+  type AfkNote,
+  type PlanInput,
+  type ProjectAliasInput,
+  type ReviewInput,
+  type Settings,
+  type TimeEfficiencyApi
+} from '../shared/contracts'
 
 const api: TimeEfficiencyApi = {
   bootstrap: () => ipcRenderer.invoke(IPC.bootstrap),
@@ -11,6 +19,7 @@ const api: TimeEfficiencyApi = {
   setTracking: (enabled: boolean) => ipcRenderer.invoke(IPC.setTracking, enabled),
   runAiReview: () => ipcRenderer.invoke(IPC.runAiReview),
   getDiagnostics: () => ipcRenderer.invoke(IPC.getDiagnostics),
+  setProjectAlias: (input: ProjectAliasInput) => ipcRenderer.invoke(IPC.setProjectAlias, input),
   showWindow: () => ipcRenderer.invoke(IPC.showWindow)
 }
 

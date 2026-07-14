@@ -26,6 +26,7 @@
 | [quality.md](./quality.md)                         | Import paths, Vite config, code quality           | Before committing                  |
 | [macos-permissions.md](./macos-permissions.md)     | macOS system permissions (mic, accessibility)     | Features requiring permissions     |
 | [text-input.md](./text-input.md)                   | Text insertion without clipboard pollution        | Voice-to-text, paste features      |
+| [codex-context-attribution.md](./codex-context-attribution.md) | Foreground Codex project attribution contract | Codex project attention changes |
 
 ---
 

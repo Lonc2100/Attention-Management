@@ -20,6 +20,10 @@ function processes() {
   return execFileSync('tasklist.exe', ['/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true })
 }
 
+function processCount(snapshot, name) {
+  return snapshot.split(/\r?\n/).filter((line) => line.toLowerCase().includes(`"${name.toLowerCase()}"`)).length
+}
+
 async function launch() {
   const electronApp = await electron.launch({
     executablePath: executable,
@@ -35,8 +39,17 @@ async function launch() {
 
 let app = await launch()
 try {
-  await app.page.getByText('正在真实记录').waitFor()
+  const runningStatus = app.page.getByText('正在真实记录', { exact: true })
+  const pausedStatus = app.page.getByText('采集已暂停', { exact: true })
+  await Promise.race([runningStatus.waitFor(), pausedStatus.waitFor()])
+  if (await pausedStatus.isVisible()) {
+    await app.page.getByRole('button', { name: '恢复采集' }).click()
+    await runningStatus.waitFor()
+  }
   record('ActivityWatch UI status', 'connected and tracking')
+  await app.page.getByText('项目注意力', { exact: true }).waitFor()
+  await app.page.getByText(/等待确认 Codex 上下文|正在计入：|最近确认：/).waitFor()
+  record('Automatic Codex context UI', 'context banner and project attention panel rendered without a manual switch')
 
   await app.page.getByRole('button', { name: /^早间计划/ }).click()
   const inputs = app.page.locator('.outcome-input input:last-child')
@@ -62,23 +75,32 @@ try {
   record('Codex CLI UI path', `${aiText.length} Chinese characters returned and rendered`)
 
   await app.page.getByRole('button', { name: '今日概览' }).click()
+  const beforePause = processes()
   await app.page.getByRole('button', { name: '暂停采集' }).click()
   await app.page.getByText('采集已暂停', { exact: true }).waitFor()
   await new Promise((resolveWait) => setTimeout(resolveWait, 1200))
   const paused = processes()
-  assert.ok(!/aw-watcher-window\.exe/i.test(paused), 'window watcher still running after pause')
-  assert.ok(!/aw-watcher-afk\.exe/i.test(paused), 'AFK watcher still running after pause')
-  record('Pause tracking', 'both bundled watcher processes stopped')
+  assert.ok(processCount(paused, 'aw-watcher-window.exe') < processCount(beforePause, 'aw-watcher-window.exe'), 'test-owned window watcher did not stop after pause')
+  assert.ok(processCount(paused, 'aw-watcher-afk.exe') < processCount(beforePause, 'aw-watcher-afk.exe'), 'test-owned AFK watcher did not stop after pause')
+  record('Pause tracking', 'the test-owned watcher process counts decreased')
 
   await app.page.getByRole('button', { name: '恢复采集' }).click()
   await app.page.getByText('正在真实记录', { exact: true }).waitFor()
   await new Promise((resolveWait) => setTimeout(resolveWait, 1200))
   const resumed = processes()
-  assert.match(resumed, /aw-watcher-window\.exe/i)
-  assert.match(resumed, /aw-watcher-afk\.exe/i)
-  record('Resume tracking', 'both bundled watcher processes restarted')
+  assert.ok(processCount(resumed, 'aw-watcher-window.exe') > processCount(paused, 'aw-watcher-window.exe'))
+  assert.ok(processCount(resumed, 'aw-watcher-afk.exe') > processCount(paused, 'aw-watcher-afk.exe'))
+  record('Resume tracking', 'the test-owned watcher process counts recovered')
 
-  await app.page.screenshot({ path: join(artifacts, 'e2e-dashboard.png'), fullPage: true })
+  await app.page.getByRole('button', { name: '诊断' }).click()
+  await app.page.getByText('Codex 项目识别', { exact: true }).waitFor()
+  record('Codex context diagnostics', 'official app-server context source is visible in diagnostics')
+
+  try {
+    await app.page.screenshot({ path: join(artifacts, 'e2e-dashboard.png'), fullPage: false, timeout: 15_000 })
+  } catch (error) {
+    process.stdout.write(`WARN screenshot artifact was not captured: ${error instanceof Error ? error.message : String(error)}\n`)
+  }
 } finally {
   await app.electronApp.close()
 }

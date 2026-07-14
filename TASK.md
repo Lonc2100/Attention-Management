@@ -1,8 +1,8 @@
-# TASK — 真实时间效率助手 MVP
+# TASK — 时间效率助手 v0.2
 
 ## Objective
 
-在 Windows 上交付真实可安装的时间效率助手，打通 ActivityWatch 采集、早间计划、晚间复盘、Codex CLI 分析、自启动和补提醒。
+在 Windows 上交付真实可安装的时间效率助手，并在既有闭环上用 Codex 对话自动拆分项目注意力。
 
 ## Definition of Done
 
@@ -12,7 +12,9 @@
 - [x] Codex CLI 真实分析链路
 - [x] 默认登录自启、托盘和开机补提醒
 - [x] 自动测试与真实链路验收报告
-- [x] 最终文件位于本地忽略目录 `artifacts/v0.1.0/`
+- [x] Codex 前台注意力自动按根任务/对话分类，无需手动切换
+- [x] 分类覆盖率、待分类、项目别名和 AI 隐私边界
+- [x] 最终文件位于本地忽略目录 `artifacts/v0.2.0/`
 
 ## Constraints
 
@@ -45,10 +47,18 @@
 - [x] Windows 打包
 - [x] 使用说明与验收报告
 
+### Batch 4 — v0.2 项目注意力
+
+- [x] 官方 Codex app-server 上下文读取与运行时校验
+- [x] 仅前台、非 AFK 的稀疏上下文采样
+- [x] 项目聚合、保守待分类、v1 → v2 数据迁移
+- [x] 当前上下文、项目报告、覆盖率、应用内名称/AFK 编辑
+- [x] AI 项目聚合与原始任务信息隔离测试
+
 ## Final verification
 
-- Unit tests: 5 passed; Codex integration: 1 passed when explicitly enabled.
-- Background Electron E2E: 7 passed.
+- Unit tests: 19 passed; real Codex context integration: 1 passed when explicitly enabled.
+- Background Electron E2E: 9 passed.
 - Packaged smoke: passed with bundled ActivityWatch v0.13.2.
 - Installer and portable artifacts generated separately; SHA-256 recorded in the output report.
 - Manual follow-up: observe one natural AFK interval and one actual Windows reboot without manufacturing those events.
@@ -58,3 +68,5 @@
 - 采用 Electron，避免当前机器缺少 Rust 对 Tauri 的阻塞，并匹配 Trellis 官方 Electron 模板。
 - ActivityWatch 作为原始活动事实源；应用只保存业务数据与聚合/补记。
 - 第一条 AI 通道使用机器上已登录的 Codex CLI，不强迫用户提供 API Key。
+- ActivityWatch 决定“是否属于用户注意力”，官方 Codex app-server 决定“当前属于哪个根任务/对话”。
+- 没有可信样本的时间必须进入“待分类”，不能用最新任务倒推历史。

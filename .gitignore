@@ -1,0 +1,9 @@
+node_modules/
+out/
+release/
+runtime/activitywatch/
+runtime/*.zip
+tests/.data/
+tests/.artifacts/
+*.log
+.DS_Store

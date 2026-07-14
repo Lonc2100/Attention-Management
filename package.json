@@ -1,0 +1,74 @@
+{
+  "name": "time-efficiency-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows local-first time efficiency assistant powered by ActivityWatch and Codex CLI",
+  "main": "out/main/index.js",
+  "author": "王龙",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "setup:activitywatch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-activitywatch.ps1",
+    "test": "vitest run",
+    "test:e2e": "npm run build && node tests/e2e.mjs",
+    "typecheck": "tsc --noEmit",
+    "dist": "npm run setup:activitywatch && npm run test && npm run typecheck && npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "electron": "41.3.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.0",
+    "playwright-core": "^1.61.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.wanglong.timeefficiency",
+    "productName": "时间效率助手",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "runtime/activitywatch",
+        "to": "activitywatch"
+      },
+      {
+        "from": "licenses/activitywatch-LICENSE.txt",
+        "to": "licenses/activitywatch-LICENSE.txt"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "artifactName": "TimeEfficiency-${version}-Setup-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

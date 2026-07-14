@@ -1,0 +1,221 @@
+import { join } from 'node:path'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, shell, Tray } from 'electron'
+import type { AfkNote, PlanInput, ReviewInput, Settings } from '../shared/contracts'
+import { IPC } from '../shared/contracts'
+import { ActivityWatchManager } from './activitywatch'
+import { codexDiagnostics, runCodexReview } from './codex'
+import { localDateKey, reminderState } from './date'
+import { AppStore } from './store'
+
+let window: BrowserWindow | null = null
+let tray: Tray | null = null
+let quitting = false
+let store: AppStore
+let activityWatch: ActivityWatchManager
+const notified = new Set<string>()
+const e2eMode = process.env.TIME_EFFICIENCY_E2E === '1'
+const startHidden = process.argv.includes('--hidden')
+
+function runtimeRoot(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'activitywatch') : join(app.getAppPath(), 'runtime', 'activitywatch')
+}
+
+function createWindow(): void {
+  window = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 1024,
+    minHeight: 680,
+    show: false,
+    backgroundColor: '#0b0f14',
+    title: '时间效率助手',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  if (!e2eMode && !startHidden) window.once('ready-to-show', () => window?.show())
+  window.on('close', (event) => {
+    if (!quitting) {
+      event.preventDefault()
+      window?.hide()
+    }
+  })
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  if (process.env.ELECTRON_RENDERER_URL) window.loadURL(process.env.ELECTRON_RENDERER_URL)
+  else window.loadFile(join(__dirname, '../renderer/index.html'))
+}
+
+function createTray(): void {
+  const icon = nativeImage.createFromDataURL(
+    'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="8" fill="#70e1b2"/><path d="M9 9h14v4h-5v10h-4V13H9z" fill="#08120e"/></svg>').toString('base64')
+  )
+  tray = new Tray(icon.resize({ width: 16, height: 16 }))
+  tray.setToolTip('时间效率助手')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: '打开时间效率助手', click: () => showWindow() },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: () => {
+          quitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+  tray.on('double-click', showWindow)
+}
+
+function showWindow(): void {
+  if (!window) createWindow()
+  window?.show()
+  window?.focus()
+}
+
+function applyLaunchAtLogin(enabled: boolean): void {
+  if (e2eMode) return
+  const stableExecutable = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath
+  app.setLoginItemSettings({ openAtLogin: enabled, path: stableExecutable, args: ['--hidden'] })
+}
+
+async function diagnostics() {
+  const settings = store.getSettings()
+  const [server, windowWatcher, afkWatcher, codex] = await Promise.all([
+    activityWatch.health(),
+    activityWatch.bucketHealth('currentwindow'),
+    activityWatch.bucketHealth('afkstatus'),
+    codexDiagnostics()
+  ])
+  const login = app.getLoginItemSettings()
+  return {
+    activityWatch: server,
+    windowWatcher,
+    afkWatcher,
+    storage: { ok: true, detail: store.path },
+    codexCli: codex,
+    launchAtLogin: {
+      ok: login.openAtLogin === settings.launchAtLogin,
+      detail: login.openAtLogin ? '已启用 Windows 登录自启' : '未启用 Windows 登录自启'
+    }
+  }
+}
+
+async function bootstrap() {
+  const date = localDateKey()
+  const record = store.getRecord(date)
+  const settings = store.getSettings()
+  return {
+    date,
+    record,
+    settings,
+    activity: await activityWatch.getSummary(date, record.afkNotes),
+    reminders: reminderState(record, settings),
+    diagnostics: await diagnostics()
+  }
+}
+
+function registerIpc(): void {
+  ipcMain.handle(IPC.bootstrap, bootstrap)
+  ipcMain.handle(IPC.refreshActivity, async (_event, date?: string) => {
+    const key = date || localDateKey()
+    return activityWatch.getSummary(key, store.getRecord(key).afkNotes)
+  })
+  ipcMain.handle(IPC.savePlan, (_event, input: PlanInput) => {
+    const outcomes = input.outcomes.map((item) => ({ ...item, title: item.title.trim() })).filter((item) => item.title).slice(0, 3)
+    if (!outcomes.length) throw new Error('至少填写一个重要成果')
+    if (!outcomes.some((item) => item.id === input.priorityOutcomeId)) throw new Error('请选择一个绝对优先项')
+    return store.updateRecord(localDateKey(), (record) => ({
+      ...record,
+      outcomes,
+      priorityOutcomeId: input.priorityOutcomeId,
+      planCompletedAt: new Date().toISOString()
+    }))
+  })
+  ipcMain.handle(IPC.saveReview, (_event, input: ReviewInput) => {
+    if (input.subjectiveScore < 1 || input.subjectiveScore > 5) throw new Error('主观效率评分必须在 1–5 之间')
+    return store.updateRecord(localDateKey(), (record) => ({
+      ...record,
+      review: { ...input, summary: input.summary.trim(), tomorrowIntent: input.tomorrowIntent.trim(), completedAt: new Date().toISOString() }
+    }))
+  })
+  ipcMain.handle(IPC.saveAfkNote, (_event, input: AfkNote) =>
+    store.updateRecord(localDateKey(), (record) => ({
+      ...record,
+      afkNotes: [...record.afkNotes.filter((note) => note.id !== input.id), { ...input, note: input.note.trim() }]
+    }))
+  )
+  ipcMain.handle(IPC.updateSettings, (_event, patch: Partial<Settings>) => {
+    const settings = store.updateSettings(patch)
+    applyLaunchAtLogin(settings.launchAtLogin)
+    return settings
+  })
+  ipcMain.handle(IPC.setTracking, async (_event, enabled: boolean) => {
+    store.updateSettings({ trackingEnabled: enabled })
+    await activityWatch.setTracking(enabled)
+    const date = localDateKey()
+    return activityWatch.getSummary(date, store.getRecord(date).afkNotes)
+  })
+  ipcMain.handle(IPC.runAiReview, async () => {
+    const date = localDateKey()
+    const record = store.getRecord(date)
+    const activity = await activityWatch.getSummary(date, record.afkNotes)
+    if (!activity.connected) throw new Error(`ActivityWatch 未连接：${activity.error}`)
+    const text = await runCodexReview(record, activity)
+    store.updateRecord(date, (current) => ({ ...current, aiAnalysis: text }))
+    return { text }
+  })
+  ipcMain.handle(IPC.getDiagnostics, diagnostics)
+  ipcMain.handle(IPC.showWindow, () => showWindow())
+}
+
+function checkReminders(): void {
+  const date = localDateKey()
+  const state = reminderState(store.getRecord(date), store.getSettings())
+  const notify = (phase: 'morning' | 'evening', title: string, body: string) => {
+    const key = `${date}:${phase}`
+    if (notified.has(key)) return
+    notified.add(key)
+    const notification = new Notification({ title, body })
+    notification.on('click', showWindow)
+    notification.show()
+  }
+  if (state.morningDue) notify('morning', '该确认今天最重要的事了', '最多 3 个成果，先选出唯一绝对优先项。')
+  if (state.eveningDue) notify('evening', '今天还没有复盘', '用 5 分钟对照真实电脑记录，决定明天怎么调整。')
+}
+
+if (!app.requestSingleInstanceLock()) app.quit()
+else {
+  app.on('second-instance', showWindow)
+  app.whenReady().then(async () => {
+    store = new AppStore(join(app.getPath('userData'), 'time-efficiency-data.json'))
+    activityWatch = new ActivityWatchManager(runtimeRoot())
+    const settings = store.getSettings()
+    applyLaunchAtLogin(settings.launchAtLogin)
+    registerIpc()
+    try {
+      await activityWatch.ensureStarted(settings.trackingEnabled)
+    } catch (error) {
+      console.error('ActivityWatch startup failed:', error)
+    }
+    createWindow()
+    if (!e2eMode) createTray()
+    if (!e2eMode) {
+      checkReminders()
+      setInterval(checkReminders, 60_000)
+    }
+  })
+}
+
+app.on('before-quit', () => {
+  quitting = true
+  activityWatch?.stopAll()
+})
+
+app.on('activate', showWindow)

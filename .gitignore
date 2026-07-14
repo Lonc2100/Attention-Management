@@ -1,6 +1,9 @@
 node_modules/
 out/
 release/
+
+# Local release artifacts
+artifacts/
 runtime/activitywatch/
 runtime/*.zip
 tests/.data/

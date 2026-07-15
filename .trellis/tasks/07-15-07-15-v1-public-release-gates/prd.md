@@ -36,4 +36,3 @@
 1. 提供可用且已授权的 Windows 签名方案，或明确决定继续保留未签名本地 beta。
 2. 指定真实外部测试者与其同意的反馈渠道；不要收集不必要的原始活动数据。
 3. 收到两类证据后，从本任务继续，先审查证书使用范围与测试反馈，再实施必要修复和发布验证。
-- For complex tasks, add `design.md` for technical design and `implement.md` for execution planning before `task.py start`.

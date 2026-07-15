@@ -116,10 +116,11 @@ function createWidgetWindow(): void {
     maxHeight: WIDGET_SIZE.expanded.height,
     show: false,
     frame: false,
-    transparent: true,
+    transparent: false,
     resizable: false,
-    hasShadow: true,
+    hasShadow: false,
     skipTaskbar: true,
+    backgroundColor: '#0d151a',
     title: '时间效率助手 · 悬浮专注窗',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ActivitySummary, BootstrapData, FocusStatus } from '../../shared/contracts'
+import { widgetSharePercent } from '../../shared/widget-metrics'
 
 function timerText(seconds: number): string {
   const value = Math.max(0, Math.floor(seconds))
@@ -44,6 +45,7 @@ export default function FloatingWidget() {
     ? Math.max(focus.continuousSeconds, (now - new Date(focus.startedAt).getTime()) / 1000)
     : focus.continuousSeconds
   const expanded = data.settings.widgetExpanded
+  const sharePercent = widgetSharePercent(focus.projectTodaySeconds, data.activity.activeSeconds)
   const setExpanded = async () => {
     const settings = await window.timeEfficiency.setWidgetExpanded(!expanded)
     setData({ ...data, settings })
@@ -53,16 +55,16 @@ export default function FloatingWidget() {
       <span className="widget-dot"><i /></span>
       <div className="widget-context"><small>{statusLabel(focus.status)}</small><strong title={focus.label}>{focus.label}</strong></div>
       <div className="widget-timer"><small>连续专注</small><time>{timerText(liveSeconds)}</time></div>
-      <button className="widget-action no-drag" aria-label={expanded ? '折叠悬浮窗' : '展开悬浮窗'} onClick={() => void setExpanded()}>{expanded ? '⌃' : '⌄'}</button>
+      <button className="widget-action no-drag" aria-label={expanded ? '折叠悬浮窗' : '展开悬浮窗'} onClick={() => void setExpanded()}>{expanded ? '−' : '+'}</button>
     </div>
     {expanded && <div className="widget-expanded">
       <div className="widget-stats">
         <div className="widget-stat"><span>今日该项目</span><strong>{duration(focus.projectTodaySeconds)}</strong></div>
         <div className="widget-stat"><span>电脑活跃</span><strong>{duration(data.activity.activeSeconds)}</strong></div>
       </div>
-      <div className="widget-progress-row"><span>今日注意力占比</span><strong>{Math.round(data.activity.activeSeconds ? (focus.projectTodaySeconds / data.activity.activeSeconds) * 100 : 0)}%</strong></div>
-      <div className="widget-progress"><i style={{ width: `${Math.min(100, data.activity.activeSeconds ? (focus.projectTodaySeconds / data.activity.activeSeconds) * 100 : 0)}%` }} /></div>
-      <div className="widget-footer"><p>{focus.status === 'recent' ? '归属信号中断，项目计时已停止' : '前台注意力 · 自动更新'}</p><div className="widget-buttons"><button className="no-drag" aria-label="打开驾驶舱" onClick={() => window.timeEfficiency.showWindow()}>打开</button><button className="no-drag" aria-label="隐藏" onClick={() => window.timeEfficiency.hideWidget()}>隐藏</button></div></div>
+      <div className="widget-progress-row"><span>{focus.projectKey ? '本项目 / 已记录电脑时间' : '当前上下文 / 已记录电脑时间'}</span><strong>{sharePercent}%</strong></div>
+      <div className="widget-progress"><i style={{ width: `${sharePercent}%` }} /></div>
+      <div className="widget-footer"><p>{focus.status === 'recent' ? '归属信号中断，项目计时已停止' : '前台注意力 · 每 10 秒更新'}</p><div className="widget-buttons"><button className="no-drag" aria-label="打开驾驶舱" onClick={() => window.timeEfficiency.showWindow()}>打开</button><button className="no-drag" aria-label="隐藏" onClick={() => window.timeEfficiency.hideWidget()}>隐藏</button></div></div>
     </div>}
   </section>
 }

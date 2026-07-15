@@ -206,6 +206,49 @@ Range-like design values must be represented by explicit `min`, `default`, and `
 
 ---
 
+## Component-Governed Page Composition
+
+Page code must compose the finite module API exported by `src/renderer/src/ui/index.ts`. It must not invent a complete page surface system.
+
+```text
+Page
+├─ PageModule(default | hero | data | state; compact | comfortable)
+│  └─ ModuleHeader(eyebrow, title, description, action)
+├─ MetricGrid
+│  └─ MetricModule(label, value, note)
+└─ SegmentedControl(options, active value, onChange)
+```
+
+### Ownership Boundary
+
+| Layer | Owns | Must not own |
+| --- | --- | --- |
+| UI module | Surface, radius, padding, header typography, base control states | Domain content or data fetching |
+| Page | Content, ordering, data binding, domain visualization internals | Foundational surface, header, metric, or segmented-control styling |
+| Tokens | Primitive and semantic values | Component-specific layout |
+
+Use finite props for variants, density, and tone. Adding a new visual choice requires extending the component contract and tests; a page-specific class is not an escape hatch.
+
+```tsx
+// Wrong: page invents foundational structure and styling hooks.
+<section className="panel custom-hero">
+  <p className="eyebrow">PERSONAL PATTERNS</p>
+  <h2>Results and attention</h2>
+</section>
+
+// Correct: page supplies content to governed modules.
+<PageModule variant="hero" density="compact">
+  <ModuleHeader
+    eyebrow="PERSONAL PATTERNS"
+    title="Results and attention"
+  />
+</PageModule>
+```
+
+The component stylesheet lives at `styles/components/page-modules.css`. It must contain no raw color literals and must consume semantic tokens. `tests/page-modules.test.tsx` verifies semantic markup, finite class variants, native segmented-control buttons, token-only CSS, and pilot-page adoption.
+
+---
+
 ## CSS Class Naming Convention (BEM)
 
 Use **BEM naming convention** to prevent class name conflicts:

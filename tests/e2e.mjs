@@ -97,9 +97,15 @@ try {
     for (let index = 0; index < await timelineSegments.count(); index += 1) {
       const candidate = timelineSegments.nth(index)
       const box = await candidate.boundingBox()
-      if (box && (!widestSegment || box.width > widestSegment.box.width)) widestSegment = { candidate, box }
+      const categoryKey = await candidate.getAttribute('data-category-key')
+      const linkedTargets = categoryKey
+        ? await app.page.locator(`[data-category-key="${categoryKey}"]`).count()
+        : 0
+      if (box && linkedTargets >= 2 && (!widestSegment || box.width > widestSegment.box.width)) {
+        widestSegment = { candidate, box }
+      }
     }
-    assert.ok(widestSegment, 'timeline did not expose an interactive segment')
+    assert.ok(widestSegment, 'timeline did not expose a chart-linked interactive segment')
     const hoverY = widestSegment.box.y + widestSegment.box.height / 2
     const hoverStartX = widestSegment.box.x + widestSegment.box.width * .3
     const hoverEndX = widestSegment.box.x + widestSegment.box.width * .7
@@ -243,15 +249,23 @@ try {
   await app.page.getByTestId('personal-insights').waitFor()
   await app.page.getByRole('button', { name: '近 14 天' }).click()
   await app.page.getByText('近 14 天', { exact: true }).last().waitFor()
+  await app.page.getByText('已复盘天数', { exact: true }).waitFor()
   assert.equal(await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'personal insights overflowed horizontally')
+  await app.page.screenshot({ path: join(artifacts, 'e2e-personal-insights.png'), fullPage: false })
   record('Personal insights', '7/14-day range, evidence quality state, and daily facts rendered without a productivity score')
 
   await app.page.getByRole('button', { name: /^晚间复盘/ }).first().click()
-  await app.page.getByRole('button', { name: /调用 Codex 生成复盘|重新分析/ }).click()
-  await app.page.locator('.ai-answer').waitFor({ timeout: 130_000 })
-  const aiText = (await app.page.locator('.ai-answer').innerText()).trim()
-  assert.ok(aiText.length > 20, 'AI answer was unexpectedly short')
-  record('Codex CLI UI path', `${aiText.length} Chinese characters returned and rendered`)
+  const aiButton = app.page.getByRole('button', { name: /调用 Codex 生成复盘|重新分析/ })
+  await aiButton.waitFor()
+  if (process.env.RUN_CODEX_INTEGRATION === '1') {
+    await aiButton.click()
+    await app.page.locator('.ai-answer').waitFor({ timeout: 130_000 })
+    const aiText = (await app.page.locator('.ai-answer').innerText()).trim()
+    assert.ok(aiText.length > 20, 'AI answer was unexpectedly short')
+    record('Codex CLI UI path', `${aiText.length} Chinese characters returned and rendered`)
+  } else {
+    record('Codex CLI control', 'review action rendered; real CLI execution remains in the opt-in integration test')
+  }
 
   await app.page.getByRole('button', { name: '设置' }).click()
   const beforePause = processes()

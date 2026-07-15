@@ -71,3 +71,36 @@ Compressed the Today first viewport, added linked donut/legend/timeline tooltips
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Theme token foundation
+
+**Date**: 2026-07-15
+**Task**: Theme token foundation
+**Branch**: `main`
+
+### Summary
+
+Established the renderer CSS token layer, semantic theme adoption, contract tests, full build and E2E verification.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8a5a6f8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

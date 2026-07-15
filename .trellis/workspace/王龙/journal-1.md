@@ -137,3 +137,36 @@ Established a finite renderer page-module API, migrated Personal Insights as the
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Editorial component guideline adoption
+
+**Date**: 2026-07-16
+**Task**: Editorial component guideline adoption
+**Branch**: `main`
+
+### Summary
+
+Translated the GSAP-inspired editorial core into finite desktop UI tokens and components: five disciplines, Mori-first typography, curly annotations, outlined pill actions, hairline dividers, and a visually verified Personal Insights pilot.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `20c3853` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

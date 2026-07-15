@@ -19,8 +19,8 @@ export function CodexContextBanner({ activity }: { activity: ActivitySummary }) 
       <strong>{current ? `${live ? '正在计入' : '最近确认'}：${current.projectLabel}` : '等待确认 Codex 上下文'}</strong>
       <small>
         {current
-          ? `${current.threadName ?? '未命名对话'} · ${live ? '以最近发起交互的根任务为边界' : '仅 Codex 前台且非 AFK 时计时'}`
-          : codexContext.error ?? '在任意 Codex 根任务中发起一次交互后会自动确认；此前没有可信信号的时间进入待分类。'}
+          ? `${current.threadName ?? '未命名对话'} · ${live ? '以当前打开的项目聊天为边界' : '仅 Codex 前台且非 AFK 时计时'}`
+          : codexContext.error ?? '打开一个 Codex 项目聊天后会自动确认；没有可信界面信号的时间进入待分类。'}
       </small>
     </div>
     <span className="auto-chip">{live ? '识别中' : '自动检测'}</span>
@@ -68,6 +68,6 @@ export function ProjectAttentionPanel({ activity, busy, run, onChange }: {
       <label><span>只更改显示名称，不会切换或合并任务</span><input autoFocus value={label} maxLength={80} onChange={(event) => setLabel(event.target.value)} /></label>
       <div><button className="secondary" onClick={() => setEditing(null)}>取消</button><button className="primary" disabled={!label.trim() || busy === 'project-alias'} onClick={() => void save()}>{busy === 'project-alias' ? '保存中…' : '保存名称'}</button></div>
     </div>}
-    <p className="panel-footnote">项目时间只统计 Codex 处于前台且你未离开电脑的区间。官方信号在新一轮交互开始时确认任务；只点开聊天但未发起交互不会改变归属。</p>
+    <p className="panel-footnote">项目时间只统计 Codex 处于前台且你未离开电脑的区间。切换到另一个项目聊天后，会在下一次采样内自动改变归属，无需先发送消息。</p>
   </article>
 }

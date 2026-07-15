@@ -1,4 +1,4 @@
-# TASK — 时间效率助手 v0.4
+# TASK — 时间效率助手 v0.4.1
 
 ## Objective
 
@@ -26,6 +26,9 @@
 - [x] 未来生效、可排序/启停/删除的归类规则
 - [x] v3 → v4 数据无损迁移与统一分类引擎
 - [x] 最终安装包位于 `artifacts/v0.4.0/`
+- [x] Codex 当前打开聊天作为项目主边界，无需先发送消息
+- [x] 当前聊天缺失或歧义时停止旧项目归属并进入待分类
+- [x] 最终安装包位于 `artifacts/v0.4.1/`
 - [ ] v0.3.0 GitHub Release
 
 ## Constraints
@@ -85,8 +88,22 @@
 - [x] 首页、悬浮窗和活动明细共用分类结果
 - [x] 纠错与规则创建/删除 Electron 端到端回归
 
+### Batch 7 — v0.4.1 当前聊天 P0 修正
+
+- [x] 核实 Codex app-server 不提供桌面 selected-thread 信号
+- [x] Windows UI Automation 只读提取顶部项目标签与聊天标题
+- [x] 当前界面与 app-server 根线程唯一映射
+- [x] 零候选/多候选/读取失败时清空旧归属
+- [x] 全量测试、打包和升级安装
+- [x] 提交、标签与推送
+
 ## Final verification
 
+- v0.4.1 unit tests: 37 passed，3 个真实集成场景默认跳过；当前 Windows Codex 窗口集成场景单独启用并通过。
+- v0.4.1 Electron E2E: 连续两轮 12 项通过。
+- v0.4.1 packaged smoke、静默升级安装、自启动删除/恢复均通过。
+- v0.4.1 真实用户数据保持 v4：2 天记录、2 天 Codex 样本、1 条规则、1 条人工纠错保留。
+- v0.4.1 installer: 188,658,307 bytes；SHA-256 `3E6BBD6885DDC1DC93541E1DCA87D164963C9F2C652083AD33C1398ED33E7403`。
 - Unit tests: 30 passed，2 个真实 Codex 集成场景默认跳过。
 - Electron E2E: 修正测试命中方式后连续两轮 12 项通过；含活动明细、纠错、规则创建/删除、撤销、1440×900 与 1600×1000 无横向溢出检查。
 - Packaged smoke: passed with bundled ActivityWatch v0.13.2.

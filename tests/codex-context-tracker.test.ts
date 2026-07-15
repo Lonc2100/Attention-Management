@@ -19,8 +19,9 @@ describe('Codex foreground context tracker', () => {
       close: vi.fn()
     }
     const store = { addCodexContextSample: vi.fn().mockReturnValue(true) }
+    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: currentThread.name, projectLabel: 'wo-m' }) }
     const now = Date.parse('2026-07-14T10:30:00.000Z')
-    const tracker = new CodexContextTracker(activity, client, store, () => now)
+    const tracker = new CodexContextTracker(activity, client, store, () => now, windowContext)
 
     await tracker.sample('2026-07-14')
 
@@ -52,12 +53,14 @@ describe('Codex foreground context tracker', () => {
       close: vi.fn()
     }
     const store = { addCodexContextSample: vi.fn() }
-    const tracker = new CodexContextTracker(activity, client, store, () => Date.now())
+    const windowContext = { readCurrentContext: vi.fn() }
+    const tracker = new CodexContextTracker(activity, client, store, () => Date.now(), windowContext)
 
     await tracker.sample('2026-07-14')
     await tracker.sample('2026-07-14')
 
     expect(client.listRecentInteractiveThreads).not.toHaveBeenCalled()
+    expect(windowContext.readCurrentContext).not.toHaveBeenCalled()
     expect(store.addCodexContextSample).not.toHaveBeenCalled()
     expect(tracker.getStatus()).toMatchObject({ foreground: true, active: false })
   })
@@ -71,7 +74,8 @@ describe('Codex foreground context tracker', () => {
       close: vi.fn()
     }
     const store = { addCodexContextSample: vi.fn() }
-    const tracker = new CodexContextTracker(activity, client, store, () => Date.now())
+    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: currentThread.name, projectLabel: 'wo-m' }) }
+    const tracker = new CodexContextTracker(activity, client, store, () => Date.now(), windowContext)
 
     await tracker.sample('2026-07-14')
 
@@ -82,6 +86,54 @@ describe('Codex foreground context tracker', () => {
       active: true,
       current: null,
       error: '协议不可用'
+    })
+  })
+
+  it('switches to the currently visible chat even when another thread has newer recency', async () => {
+    const olderVisible = { ...currentThread, id: 'visible-b', name: 'B 项目', recencyAt: currentThread.recencyAt - 60_000 }
+    const activity = {
+      getCurrentState: vi.fn().mockResolvedValue({ app: 'ChatGPT.exe', title: 'ChatGPT', isAfk: false })
+    }
+    const client = {
+      listRecentInteractiveThreads: vi.fn().mockResolvedValue([currentThread, olderVisible]),
+      close: vi.fn()
+    }
+    const store = { addCodexContextSample: vi.fn().mockReturnValue(true) }
+    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: 'B 项目', projectLabel: 'wo-m' }) }
+    const tracker = new CodexContextTracker(activity, client, store, () => Date.now(), windowContext)
+
+    await tracker.sample('2026-07-15')
+
+    expect(store.addCodexContextSample).toHaveBeenCalledWith('2026-07-15', expect.objectContaining({ threadId: 'visible-b' }))
+    expect(tracker.getStatus().current?.threadId).toBe('visible-b')
+  })
+
+  it('clears the previous project when the current visible chat becomes unreadable', async () => {
+    const activity = {
+      getCurrentState: vi.fn().mockResolvedValue({ app: 'ChatGPT.exe', title: 'ChatGPT', isAfk: false })
+    }
+    const client = {
+      listRecentInteractiveThreads: vi.fn().mockResolvedValue([currentThread]),
+      close: vi.fn()
+    }
+    const store = { addCodexContextSample: vi.fn().mockReturnValue(true) }
+    const windowContext = {
+      readCurrentContext: vi.fn()
+        .mockResolvedValueOnce({ threadName: currentThread.name, projectLabel: 'wo-m' })
+        .mockResolvedValueOnce(null)
+    }
+    const tracker = new CodexContextTracker(activity, client, store, () => Date.now(), windowContext)
+
+    await tracker.sample('2026-07-15')
+    await tracker.sample('2026-07-15')
+
+    expect(store.addCodexContextSample).toHaveBeenCalledTimes(1)
+    expect(tracker.getStatus()).toMatchObject({
+      available: true,
+      foreground: true,
+      active: true,
+      current: null,
+      error: '当前 Codex 聊天未确认，时间暂记为待分类'
     })
   })
 })

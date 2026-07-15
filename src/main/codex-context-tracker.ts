@@ -5,6 +5,11 @@ import type {
 } from '../shared/contracts'
 import type { CurrentActivityState } from './activitywatch'
 import { deriveProjectIdentity, isCodexWindow } from './project-attribution'
+import {
+  CodexWindowContextReader,
+  matchVisibleCodexThread,
+  type VisibleCodexContext
+} from './codex-window-context'
 
 type ActivityReader = {
   getCurrentState(): Promise<CurrentActivityState>
@@ -17,6 +22,10 @@ type ThreadReader = {
 
 type SampleStore = {
   addCodexContextSample(date: string, sample: CodexContextSample): boolean
+}
+
+type WindowContextReader = {
+  readCurrentContext(): Promise<VisibleCodexContext | null>
 }
 
 const DEFAULT_STATUS: CodexContextStatus = {
@@ -38,7 +47,8 @@ export class CodexContextTracker {
     private readonly activity: ActivityReader,
     private readonly client: ThreadReader,
     private readonly store: SampleStore,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly windowContext: WindowContextReader = new CodexWindowContextReader()
   ) {}
 
   start(dateProvider: () => string, intervalMs = 5_000): void {
@@ -75,9 +85,32 @@ export class CodexContextTracker {
         return
       }
 
+      const visible = await this.windowContext.readCurrentContext()
+      if (!visible) {
+        this.status = {
+          ...this.status,
+          available: true,
+          foreground: true,
+          active: true,
+          current: null,
+          error: '当前 Codex 聊天未确认，时间暂记为待分类'
+        }
+        return
+      }
+
       const threads = await this.client.listRecentInteractiveThreads()
-      const current = threads[0]
-      if (!current) throw new Error('Codex 没有可识别的桌面对话，请先打开一个项目对话')
+      const current = matchVisibleCodexThread(visible, threads)
+      if (!current) {
+        this.status = {
+          ...this.status,
+          available: true,
+          foreground: true,
+          active: true,
+          current: null,
+          error: `无法唯一匹配当前 Codex 聊天“${visible.threadName}”，时间暂记为待分类`
+        }
+        return
+      }
       const detectedAt = this.now()
       const identity = deriveProjectIdentity(current, {})
       const identitySource = identity.source === 'alias' ? 'fallback' : identity.source

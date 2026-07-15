@@ -20,7 +20,8 @@
   "subtasks": [],
   "children": [
     "07-15-v0-5-results-and-patterns",
-    "07-15-07-15-v0-6-external-beta-readiness"
+    "07-15-07-15-v0-6-external-beta-readiness",
+    "07-15-07-15-v1-public-release-gates"
   ],
   "parent": null,
   "relatedFiles": [],

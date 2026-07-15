@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>时间效率助手 v0.3.0 — 今日注意力驾驶舱</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080d11;
+      --sidebar: #0a0f14;
+      --surface: #10171d;
+      --surface-raised: #131c23;
+      --surface-soft: #0c1318;
+      --border: #243039;
+      --border-soft: #1c262e;
+      --text: #edf4f1;
+      --text-soft: #b8c5c1;
+      --muted: #75848a;
+      --mint: #70e1b2;
+      --mint-strong: #43c996;
+      --mint-deep: #2d9874;
+      --amber: #c49b5c;
+      --blue: #5f91ed;
+      --purple: #8f7ce8;
+      --slate: #5f747b;
+      --danger: #e77777;
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 18px;
+      --shadow: 0 24px 70px rgba(0, 0, 0, .32);
+      --sidebar-width: 216px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-width: 1080px; min-height: 100%; margin: 0; }
+
+    body {
+      background:
+        radial-gradient(circle at 78% 9%, rgba(52, 161, 119, .08), transparent 30%),
+        radial-gradient(circle at 18% 92%, rgba(76, 104, 154, .08), transparent 34%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button { font: inherit; }
+
+    button:focus-visible {
+      outline: 2px solid var(--mint);
+      outline-offset: 3px;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 10;
+      display: flex;
+      width: var(--sidebar-width);
+      flex-direction: column;
+      padding: 26px 18px 22px;
+      border-right: 1px solid var(--border-soft);
+      background: rgba(8, 13, 17, .94);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 8px 26px;
+    }
+
+    .brand__mark {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 13px;
+      background: var(--mint);
+      color: #082018;
+      font-size: 19px;
+      font-weight: 900;
+      box-shadow: 0 12px 32px rgba(66, 204, 151, .13);
+    }
+
+    .brand strong, .brand small { display: block; }
+    .brand strong { font-size: 16px; letter-spacing: -.02em; }
+    .brand small { margin-top: 4px; color: var(--muted); font-size: 9px; letter-spacing: .16em; }
+
+    .nav { display: grid; gap: 5px; }
+
+    .nav__item {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 13px;
+      border: 0;
+      border-radius: 11px;
+      background: transparent;
+      color: #87949a;
+      cursor: default;
+      text-align: left;
+    }
+
+    .nav__item--active { background: #151e25; color: var(--text); font-weight: 650; }
+    .nav__badge { color: var(--mint); font-size: 10px; font-weight: 700; }
+
+    .sidebar__foot {
+      margin-top: auto;
+      padding: 17px 10px 0;
+      border-top: 1px solid var(--border-soft);
+      color: #66747b;
+      font-size: 10px;
+      line-height: 1.7;
+    }
+
+    .main {
+      grid-column: 2;
+      width: 100%;
+      max-width: 1580px;
+      padding: 28px 34px 48px;
+    }
+
+    .topbar {
+      display: flex;
+      min-height: 54px;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .topbar__date {
+      margin: 0 0 5px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .04em;
+    }
+
+    h1 { margin: 0; font-size: 25px; letter-spacing: -.035em; }
+    h2 { margin: 0; font-size: 15px; letter-spacing: -.02em; }
+
+    .topbar__actions { display: flex; align-items: center; gap: 8px; }
+
+    .ghost-button, .layer-toggle__button {
+      border: 1px solid var(--border);
+      background: rgba(17, 25, 31, .82);
+      color: var(--text-soft);
+      cursor: pointer;
+    }
+
+    .ghost-button { padding: 9px 12px; border-radius: 10px; font-size: 11px; }
+    .ghost-button:hover { border-color: #385047; color: var(--text); }
+
+    .recording-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid rgba(66, 180, 136, .28);
+      border-radius: 999px;
+      background: rgba(29, 93, 70, .12);
+      color: var(--mint);
+      font-size: 11px;
+    }
+
+    .recording-status::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--mint);
+      box-shadow: 0 0 0 5px rgba(112, 225, 178, .08), 0 0 13px rgba(112, 225, 178, .48);
+      content: "";
+    }
+
+    .context-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 18px;
+      margin: 14px 0 13px;
+      padding: 10px 13px;
+      border: 1px solid var(--border-soft);
+      border-radius: 11px;
+      background: rgba(12, 19, 24, .7);
+    }
+
+    .priority-line { min-width: 0; color: var(--muted); font-size: 11px; }
+    .priority-line strong { margin-left: 8px; color: var(--text-soft); font-weight: 600; }
+    .priority-line a { margin-left: 8px; color: var(--mint); text-decoration: none; }
+
+    .current-context {
+      display: inline-flex;
+      max-width: 440px;
+      align-items: center;
+      gap: 9px;
+      white-space: nowrap;
+    }
+
+    .current-context__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); }
+    .current-context__label { color: var(--muted); font-size: 10px; }
+    .current-context__project { overflow: hidden; color: var(--text); font-size: 11px; font-weight: 700; text-overflow: ellipsis; }
+    .current-context__state { padding: 4px 7px; border-radius: 999px; background: rgba(67, 201, 150, .1); color: var(--mint); font-size: 9px; }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(286px, 340px) minmax(620px, 1fr);
+      gap: 13px;
+    }
+
+    .panel {
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(160deg, rgba(18, 27, 34, .96), rgba(13, 20, 25, .96));
+      box-shadow: 0 1px 0 rgba(255, 255, 255, .015) inset;
+    }
+
+    .panel__head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .panel__eyebrow { margin: 0 0 5px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .13em; }
+    .panel__note { color: var(--muted); font-size: 9px; }
+
+    .donut-panel { padding: 18px 18px 16px; }
+
+    .donut-wrap {
+      display: grid;
+      grid-template-columns: 156px minmax(0, 1fr);
+      align-items: center;
+      gap: 15px;
+      margin-top: 14px;
+    }
+
+    .donut {
+      position: relative;
+      width: 156px;
+      height: 156px;
+      border-radius: 50%;
+      background: conic-gradient(
+        #78e3b7 0 15.23%,
+        #55cda3 15.23% 24.37%,
+        #34aa83 24.37% 39.60%,
+        #b89255 39.60% 79.70%,
+        #5d8fe8 79.70% 88.84%,
+        #8c7ae0 88.84% 94.92%,
+        #5a7078 94.92% 100%
+      );
+      box-shadow: 0 0 0 1px rgba(255,255,255,.035), 0 22px 50px rgba(0, 0, 0, .22);
+    }
+
+    .donut::after {
+      position: absolute;
+      inset: 20px;
+      display: block;
+      border: 1px solid rgba(255,255,255,.035);
+      border-radius: 50%;
+      background: #0f171c;
+      content: "";
+    }
+
+    .donut__center {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      display: grid;
+      place-content: center;
+      text-align: center;
+    }
+
+    .donut__center strong { font-size: 24px; letter-spacing: -.045em; }
+    .donut__center span { margin-top: 3px; color: var(--muted); font-size: 9px; }
+
+    .legend { display: grid; gap: 7px; }
+    .legend__item { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 7px; font-size: 9px; }
+    .legend__dot { width: 7px; height: 7px; border-radius: 50%; }
+    .legend__label { overflow: hidden; color: var(--text-soft); text-overflow: ellipsis; white-space: nowrap; }
+    .legend__value { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .codex-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 13px;
+      padding: 8px 10px;
+      border-radius: 9px;
+      background: rgba(65, 186, 141, .07);
+      color: #91a59e;
+      font-size: 9px;
+    }
+    .codex-group strong { color: var(--mint); font-size: 10px; }
+
+    .timeline-panel { min-width: 0; padding: 18px; }
+
+    .range-chip {
+      padding: 6px 9px;
+      border: 1px solid var(--border-soft);
+      border-radius: 9px;
+      background: #0b1217;
+      color: var(--muted);
+      font-size: 8px;
+    }
+
+    .timeline { margin-top: 12px; }
+
+    .focus-detail__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 8px;
+    }
+
+    .focus-detail { margin-top: 14px; }
+
+    .focus-detail__axis {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      margin-top: 9px;
+      color: #66757b;
+      font-size: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .focus-detail__axis span:last-child { text-align: right; }
+
+    .focus-detail__track {
+      position: relative;
+      height: 66px;
+      margin-top: 5px;
+      overflow: hidden;
+      border: 1px solid #253139;
+      border-radius: 11px;
+      background-color: #11191f;
+      background-image: linear-gradient(to right, rgba(117, 139, 146, .15) 1px, transparent 1px);
+      background-size: 20% 100%;
+    }
+
+    .focus-block {
+      position: absolute;
+      top: 9px;
+      bottom: 9px;
+      left: calc(var(--start) * 1%);
+      width: max(calc(var(--span) * 1%), 6px);
+      overflow: hidden;
+      padding: 6px 7px;
+      border: 0;
+      border-radius: 7px;
+      background: var(--block-color);
+      color: #f3faf7;
+      cursor: pointer;
+      text-align: left;
+      transition: filter .15s ease, transform .15s ease, box-shadow .15s ease;
+    }
+
+    .focus-block:hover,
+    .focus-block--selected {
+      z-index: 2;
+      filter: brightness(1.12);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, .28), 0 0 0 2px rgba(230, 244, 238, .72);
+    }
+
+    .focus-block strong,
+    .focus-block small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-block strong { font-size: 8px; }
+    .focus-block small { margin-top: 4px; color: rgba(241, 249, 246, .7); font-size: 7px; font-weight: 500; }
+    .focus-block--confirmed { --block-color: #2f9f76; }
+    .focus-block--pending { --block-color: #8f7043; }
+    .focus-block--afk {
+      --block-color: #364249;
+      background-image: radial-gradient(rgba(196, 207, 211, .28) .8px, transparent .8px);
+      background-size: 5px 5px;
+    }
+    .focus-block--inferred {
+      --block-color: #397961;
+      border: 1px solid rgba(112, 225, 178, .52);
+      background: repeating-linear-gradient(135deg, rgba(56, 138, 106, .82) 0 6px, rgba(45, 102, 81, .82) 6px 12px);
+    }
+    .focus-block--application { --block-color: #526ca1; }
+    .focus-block--compact { padding-inline: 5px; }
+    .focus-block--compact small { display: none; }
+    .focus-block--tiny { padding-inline: 2px; text-align: center; }
+    .focus-block--tiny strong { font-size: 7px; }
+    .focus-block--tiny small { display: none; }
+
+    .focus-inspector {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      min-height: 38px;
+      margin-top: 9px;
+      padding: 8px 10px;
+      border: 1px solid var(--border-soft);
+      border-radius: 9px;
+      background: #0d151a;
+    }
+
+    .focus-inspector__time { color: var(--text); font-size: 11px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .focus-inspector__main { min-width: 0; }
+    .focus-inspector__title { overflow: hidden; color: var(--text-soft); font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-inspector__meta { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+    .focus-inspector__state { padding: 4px 7px; border-radius: 999px; background: rgba(67, 201, 150, .1); color: var(--mint); font-size: 8px; }
+
+    .metrics-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin: 13px 0;
+      border: 1px solid var(--border-soft);
+      border-radius: 12px;
+      background: rgba(12, 19, 24, .72);
+    }
+
+    .metric {
+      display: flex;
+      min-width: 0;
+      align-items: baseline;
+      gap: 8px;
+      padding: 11px 15px;
+      border-right: 1px solid var(--border-soft);
+    }
+    .metric:last-child { border-right: 0; }
+    .metric__label { color: var(--muted); font-size: 9px; }
+    .metric__value { overflow: hidden; color: var(--text-soft); font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+    .metric__value--warn { color: #d6b679; }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1.12fr .88fr;
+      gap: 13px;
+    }
+
+    .detail-panel { padding: 17px 18px 15px; }
+    .detail-panel__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+    .detail-panel__link { border: 0; background: transparent; color: var(--mint); font-size: 9px; }
+
+    .usage-list { display: grid; }
+    .usage-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 13px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(36, 48, 57, .7);
+    }
+    .usage-row:last-child { border-bottom: 0; }
+    .usage-row__main { min-width: 0; }
+    .usage-row__title { display: flex; min-width: 0; align-items: center; gap: 8px; font-size: 10px; font-weight: 650; }
+    .usage-row__dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--row-color); }
+    .usage-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .usage-row__meta { margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .usage-row__time { color: var(--text-soft); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .usage-row__bar { height: 3px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: #253139; }
+    .usage-row__bar span { display: block; width: var(--bar-width); height: 100%; border-radius: inherit; background: var(--row-color); }
+    .usage-row__tag { margin-left: 4px; padding: 3px 5px; border: 1px solid #324047; border-radius: 999px; color: var(--muted); font-size: 7px; font-weight: 500; }
+    .usage-row__tag--inferred { border-color: rgba(112,225,178,.28); color: #9cd9be; }
+
+    .app-summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .app-chip {
+      padding: 10px;
+      border: 1px solid var(--border-soft);
+      border-radius: 10px;
+      background: var(--surface-soft);
+    }
+    .app-chip__top { display: flex; justify-content: space-between; gap: 8px; font-size: 9px; }
+    .app-chip__top strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .app-chip__top span { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+    .app-chip small { display: block; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+
+    .widget-demo {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 50;
+      display: grid;
+      justify-items: end;
+      gap: 8px;
+      filter: drop-shadow(0 18px 42px rgba(0, 0, 0, .42));
+    }
+
+    .widget-pill {
+      display: grid;
+      grid-template-columns: 8px minmax(0, 1fr) auto;
+      min-width: 286px;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 12px;
+      border: 1px solid rgba(112, 225, 178, .28);
+      border-radius: 13px;
+      background: rgba(12, 22, 20, .96);
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      backdrop-filter: blur(18px);
+    }
+
+    .widget-pill__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 12px rgba(112,225,178,.52); }
+    .widget-pill__project { overflow: hidden; font-size: 10px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+    .widget-pill__project small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; font-weight: 500; }
+    .widget-pill__time { color: var(--mint); font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+    .widget-panel {
+      width: 286px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: rgba(12, 18, 23, .98);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+    }
+    .widget-panel[hidden] { display: none; }
+    .widget-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .widget-panel__head strong { font-size: 11px; }
+    .widget-panel__state { padding: 4px 7px; border-radius: 999px; background: rgba(67,201,150,.1); color: var(--mint); font-size: 8px; }
+    .widget-panel__timer { margin: 14px 0 3px; font-size: 28px; font-weight: 850; letter-spacing: -.04em; }
+    .widget-panel__caption { color: var(--muted); font-size: 8px; }
+    .widget-panel__facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 13px 0; }
+    .widget-panel__fact { padding: 9px; border-radius: 9px; background: #111a20; }
+    .widget-panel__fact span, .widget-panel__fact strong { display: block; }
+    .widget-panel__fact span { color: var(--muted); font-size: 8px; }
+    .widget-panel__fact strong { margin-top: 4px; font-size: 10px; }
+    .widget-panel__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .widget-panel__action { padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #131d24; color: var(--text-soft); font-size: 9px; }
+
+    .prototype-note {
+      position: fixed;
+      right: 22px;
+      bottom: 78px;
+      z-index: 40;
+      color: #59686d;
+      font-size: 8px;
+      transition: opacity .2s ease;
+    }
+    .prototype-note--hidden { opacity: 0; }
+
+    @media (max-width: 1240px) {
+      :root { --sidebar-width: 196px; }
+      .main { padding-right: 24px; padding-left: 24px; }
+      .hero-grid { grid-template-columns: 300px minmax(560px, 1fr); }
+      .donut-wrap { grid-template-columns: 142px minmax(0, 1fr); }
+      .donut { width: 142px; height: 142px; }
+      .legend__item:nth-child(n+6) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand__mark">T</div>
+        <div><strong>时间效率助手</strong><small>LOCAL WORK SYSTEM</small></div>
+      </div>
+      <nav class="nav" aria-label="主导航">
+        <button class="nav__item nav__item--active"><span>今日概览</span><span class="nav__badge">●</span></button>
+        <button class="nav__item"><span>早间计划</span></button>
+        <button class="nav__item"><span>晚间复盘</span><span class="nav__badge">待完成</span></button>
+        <button class="nav__item"><span>诊断</span></button>
+        <button class="nav__item"><span>设置</span></button>
+      </nav>
+      <div class="sidebar__foot">本机保存 · 不录屏<br />项目推断不覆盖原始应用记录<br />v0.3.0 DESIGN PREVIEW</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="topbar__date">2026年7月14日 · 星期二</p>
+          <h1>今日注意力</h1>
+        </div>
+        <div class="topbar__actions">
+          <button class="ghost-button" id="openWidget">预览悬浮窗</button>
+          <span class="recording-status">正在真实记录</span>
+        </div>
+      </header>
+
+      <section class="context-row" aria-label="今日上下文">
+        <div class="priority-line">今日绝对优先<strong>打通飞书、Codex 与 Obsidian 的执行协作</strong><a href="#">查看计划 →</a></div>
+        <div class="current-context">
+          <span class="current-context__dot"></span>
+          <span class="current-context__label">当前项目</span>
+          <span class="current-context__project">github-cc-connect</span>
+          <span class="current-context__state">已确认</span>
+        </div>
+      </section>
+
+      <section class="hero-grid">
+        <article class="panel donut-panel">
+          <div class="panel__head">
+            <div><p class="panel__eyebrow">ATTENTION SHARE</p><h2>今天时间去了哪里</h2></div>
+            <span class="panel__note">有效活跃</span>
+          </div>
+          <div class="donut-wrap">
+            <div class="donut" aria-label="今日有效活跃时间圆环">
+              <div class="donut__center"><strong>3h 17m</strong><span>电脑有效活跃</span></div>
+            </div>
+            <div class="legend" aria-label="圆环图例">
+              <div class="legend__item"><i class="legend__dot" style="background:#78e3b7"></i><span class="legend__label">github-cc-connect</span><span class="legend__value">30m</span></div>
+              <div class="legend__item"><i class="legend__dot" style="background:#55cda3"></i><span class="legend__label">libtv第三集</span><span class="legend__value">18m</span></div>
+              <div class="legend__item"><i class="legend__dot" style="background:#34aa83"></i><span class="legend__label">时间效率助手</span><span class="legend__value">30m</span></div>
+              <div class="legend__item"><i class="legend__dot" style="background:#b89255"></i><span class="legend__label">Codex 待分类</span><span class="legend__value">1h19m</span></div>
+              <div class="legend__item"><i class="legend__dot" style="background:#5d8fe8"></i><span class="legend__label">Chrome</span><span class="legend__value">18m</span></div>
+              <div class="legend__item"><i class="legend__dot" style="background:#8c7ae0"></i><span class="legend__label">资源管理器</span><span class="legend__value">12m</span></div>
+              <div class="legend__item"><i class="legend__dot" style="background:#5a7078"></i><span class="legend__label">微信</span><span class="legend__value">10m</span></div>
+            </div>
+          </div>
+          <div class="codex-group"><span>同色系 4 项属于 Codex</span><strong>合计 2h 37m</strong></div>
+        </article>
+
+        <article class="panel timeline-panel">
+          <div class="panel__head">
+            <div><p class="panel__eyebrow">DAILY RHYTHM</p><h2>全天注意力时间轴</h2></div>
+            <span class="range-chip">自动放大 · 08:00–13:00</span>
+          </div>
+          <div class="timeline">
+            <div class="focus-detail">
+              <div class="focus-detail__head"><span>项目化活动时间轴</span><span>每格1小时 · 点击时间块查看准确起止</span></div>
+              <div class="focus-detail__axis"><span>08:00</span><span>09:00</span><span>10:00</span><span>11:00</span><span>12:00</span><span>13:00</span></div>
+              <div class="focus-detail__track">
+                <button class="focus-block focus-block--confirmed focus-block--selected" style="--start:10;--span:10;--block-color:#55bd91" data-time="08:30–09:00" data-title="github-cc-connect" data-meta="Codex · 根任务已确认" data-state="已确认"> <strong>C · github</strong><small>08:30–09:00</small></button>
+                <button class="focus-block focus-block--inferred focus-block--compact" style="--start:20.4;--span:6" data-time="09:01–09:19" data-title="Chrome" data-meta="可能延续 github-cc-connect · 尚未计入项目" data-state="推断中"><strong>Chrome</strong></button>
+                <button class="focus-block focus-block--pending" style="--start:26.8;--span:26.33" data-time="09:20–10:39" data-title="Codex 待分类" data-meta="Codex · 缺少可靠上下文" data-state="待分类"><strong>Codex 待分类</strong><small>09:20–10:39</small></button>
+                <button class="focus-block focus-block--afk" style="--start:53.5;--span:14" data-time="10:40–11:22" data-title="离开电脑" data-meta="AFK · 不自动判断效率" data-state="AFK"><strong>离开电脑</strong><small>10:40–11:22</small></button>
+                <button class="focus-block focus-block--confirmed focus-block--compact" style="--start:67.8;--span:6;--block-color:#359a76" data-time="11:23–11:41" data-title="libtv第三集" data-meta="Codex · 根任务已确认" data-state="已确认"><strong>C · libtv</strong></button>
+                <button class="focus-block focus-block--confirmed" style="--start:74.2;--span:10;--block-color:#24795f" data-time="11:42–12:12" data-title="时间效率助手" data-meta="Codex · 根任务已确认" data-state="已确认"><strong>C · 效率助手</strong><small>11:42–12:12</small></button>
+                <button class="focus-block focus-block--application focus-block--tiny" style="--start:84.6;--span:4" data-time="12:13–12:25" data-title="资源管理器" data-meta="只知道应用 · 项目未确认" data-state="未确认"><strong>文件</strong></button>
+                <button class="focus-block focus-block--application focus-block--tiny" style="--start:89;--span:3.33" data-time="12:26–12:36" data-title="微信" data-meta="只知道应用 · 项目未确认" data-state="未确认"><strong>微</strong></button>
+              </div>
+              <div class="focus-inspector" aria-live="polite">
+                <span class="focus-inspector__time" id="focusTime">08:30–09:00</span>
+                <div class="focus-inspector__main"><div class="focus-inspector__title" id="focusTitle">github-cc-connect</div><div class="focus-inspector__meta" id="focusMeta">Codex · 根任务已确认</div></div>
+                <span class="focus-inspector__state" id="focusState">已确认</span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="metrics-strip" aria-label="今日核心指标">
+        <div class="metric"><span class="metric__label">电脑活跃</span><span class="metric__value">3小时17分</span></div>
+        <div class="metric"><span class="metric__label">最长连续专注</span><span class="metric__value">1小时08分</span></div>
+        <div class="metric"><span class="metric__label">离开电脑</span><span class="metric__value">42分钟</span></div>
+        <div class="metric"><span class="metric__label">Codex 分类覆盖</span><span class="metric__value metric__value--warn">49% · 1h19m 待分类</span></div>
+      </section>
+
+      <section class="detail-grid">
+        <article class="panel detail-panel">
+          <div class="detail-panel__head"><div><p class="panel__eyebrow">ATTENTION DESTINATIONS</p><h2>注意力去向</h2></div><button class="detail-panel__link">查看全部</button></div>
+          <div class="usage-list">
+            <div class="usage-row" style="--row-color:#78e3b7;--bar-width:38%">
+              <div class="usage-row__main"><div class="usage-row__title"><i class="usage-row__dot"></i><span class="usage-row__name">github-cc-connect</span><span class="usage-row__tag">已确认</span></div><div class="usage-row__bar"><span></span></div><div class="usage-row__meta">打通飞书、Codex、Obsidian · 1个根任务</div></div><span class="usage-row__time">30分钟</span>
+            </div>
+            <div class="usage-row" style="--row-color:#34aa83;--bar-width:38%">
+              <div class="usage-row__main"><div class="usage-row__title"><i class="usage-row__dot"></i><span class="usage-row__name">时间效率助手</span><span class="usage-row__tag">已确认</span></div><div class="usage-row__bar"><span></span></div><div class="usage-row__meta">v0.3.0 首页与悬浮窗设计</div></div><span class="usage-row__time">30分钟</span>
+            </div>
+            <div class="usage-row" style="--row-color:#55cda3;--bar-width:23%">
+              <div class="usage-row__main"><div class="usage-row__title"><i class="usage-row__dot"></i><span class="usage-row__name">libtv第三集</span><span class="usage-row__tag">已确认</span></div><div class="usage-row__bar"><span></span></div><div class="usage-row__meta">脚本资产整理 · 1个根任务</div></div><span class="usage-row__time">18分钟</span>
+            </div>
+            <div class="usage-row" style="--row-color:#6caf91;--bar-width:28%">
+              <div class="usage-row__main"><div class="usage-row__title"><i class="usage-row__dot"></i><span class="usage-row__name">可能属于 github-cc-connect</span><span class="usage-row__tag usage-row__tag--inferred">推断中</span></div><div class="usage-row__bar"><span></span></div><div class="usage-row__meta">Chrome · 紧邻已确认项目 · 尚未计入项目总时长</div></div><span class="usage-row__time">18分钟</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel detail-panel">
+          <div class="detail-panel__head"><div><p class="panel__eyebrow">APPLICATION FACTS</p><h2>应用明细</h2></div><button class="detail-panel__link">原始时间轴</button></div>
+          <div class="app-summary">
+            <div class="app-chip"><div class="app-chip__top"><strong>Codex</strong><span>2h37m</span></div><small>已拆为3个项目和待分类</small></div>
+            <div class="app-chip"><div class="app-chip__top"><strong>Chrome</strong><span>18m</span></div><small>部分时段正在判断项目延续</small></div>
+            <div class="app-chip"><div class="app-chip__top"><strong>资源管理器</strong><span>12m</span></div><small>D:\codex work\Attention-Management</small></div>
+            <div class="app-chip"><div class="app-chip__top"><strong>微信</strong><span>10m</span></div><small>项目归属未确认</small></div>
+          </div>
+          <div class="codex-group" style="margin-top:12px"><span>事实层始终保留，不被项目推断覆盖</span><strong>本机数据</strong></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <span class="prototype-note" id="prototypeNote">点击胶囊查看展开态</span>
+  <div class="widget-demo" aria-label="悬浮专注窗预览">
+    <section class="widget-panel" id="widgetPanel" hidden>
+      <div class="widget-panel__head"><strong>github-cc-connect</strong><span class="widget-panel__state">已确认</span></div>
+      <div class="widget-panel__timer">36:24</div>
+      <div class="widget-panel__caption">连续电脑专注 · 离开电脑后自动停止</div>
+      <div class="widget-panel__facts">
+        <div class="widget-panel__fact"><span>今日项目时间</span><strong>30分钟</strong></div>
+        <div class="widget-panel__fact"><span>当前应用</span><strong>Codex</strong></div>
+      </div>
+      <div class="widget-panel__actions"><button class="widget-panel__action">暂停采集</button><button class="widget-panel__action">打开主界面</button></div>
+    </section>
+    <button class="widget-pill" id="widgetToggle" aria-expanded="false">
+      <span class="widget-pill__dot"></span>
+      <span class="widget-pill__project">github-cc-connect<small>当前项目 · 已确认</small></span>
+      <span class="widget-pill__time">36m</span>
+    </button>
+  </div>
+
+  <script>
+    const widgetPanel = document.querySelector('#widgetPanel');
+    const widgetToggle = document.querySelector('#widgetToggle');
+    const openWidget = document.querySelector('#openWidget');
+    const prototypeNote = document.querySelector('#prototypeNote');
+
+    function setWidget(open) {
+      widgetPanel.hidden = !open;
+      widgetToggle.setAttribute('aria-expanded', String(open));
+      prototypeNote.classList.toggle('prototype-note--hidden', open);
+      openWidget.textContent = open ? '收起悬浮窗' : '预览悬浮窗';
+    }
+
+    widgetToggle.addEventListener('click', () => setWidget(widgetPanel.hidden));
+    openWidget.addEventListener('click', () => setWidget(widgetPanel.hidden));
+
+    const focusBlocks = document.querySelectorAll('.focus-block');
+    const focusTime = document.querySelector('#focusTime');
+    const focusTitle = document.querySelector('#focusTitle');
+    const focusMeta = document.querySelector('#focusMeta');
+    const focusState = document.querySelector('#focusState');
+
+    function inspectFocus(block) {
+      focusBlocks.forEach((item) => item.classList.remove('focus-block--selected'));
+      block.classList.add('focus-block--selected');
+      focusTime.textContent = block.dataset.time;
+      focusTitle.textContent = block.dataset.title;
+      focusMeta.textContent = block.dataset.meta;
+      focusState.textContent = block.dataset.state;
+    }
+
+    focusBlocks.forEach((block) => {
+      block.addEventListener('click', () => inspectFocus(block));
+      block.addEventListener('mouseenter', () => inspectFocus(block));
+    });
+
+    if (new URLSearchParams(window.location.search).get('widget') === 'open') {
+      setWidget(true);
+    }
+  </script>
+</body>
+</html>

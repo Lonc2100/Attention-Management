@@ -1,0 +1,3 @@
+{"file":"自动化测试/v0.3.0/TEST_PLAN.md","reason":"automated and manual release gates"}
+{"file":"自动化测试/v0.3.0/TEST_REPORT.md","reason":"final test evidence and known manual boundaries"}
+{"file":".trellis/tasks/07-14-v0-3-attention-dashboard-design/decision-log.md","reason":"verify implementation against accepted product decisions"}

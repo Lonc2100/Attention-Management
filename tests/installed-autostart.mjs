@@ -27,7 +27,13 @@ const electronApp = await electron.launch({
 })
 
 try {
-  const page = await electronApp.firstWindow({ timeout: 45_000 })
+  await electronApp.firstWindow({ timeout: 45_000 })
+  const deadline = Date.now() + 45_000
+  while (electronApp.windows().length < 2 && Date.now() < deadline) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+  }
+  const page = electronApp.windows().find((candidate) => !candidate.url().includes('window=widget'))
+  assert.ok(page, 'installed main window was not created')
   page.setDefaultTimeout(30_000)
   await page.getByText('正在真实记录', { exact: true }).waitFor()
   await page.getByRole('button', { name: '设置' }).click()

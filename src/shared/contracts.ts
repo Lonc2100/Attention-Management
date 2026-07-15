@@ -36,6 +36,9 @@ export interface Settings {
   morningReminder: string
   eveningReminder: string
   aiProvider: 'codex-cli'
+  widgetMode: 'always-on-top' | 'desktop'
+  widgetExpanded: boolean
+  widgetPosition: { x: number; y: number; displayId: string } | null
 }
 
 export interface ActivityEvent {
@@ -111,6 +114,49 @@ export interface AfkPeriod {
   note?: string
 }
 
+export type AttentionKind = 'project' | 'codex-unclassified' | 'application' | 'afk'
+
+export interface TimelineSlice {
+  id: string
+  start: string
+  end: string
+  seconds: number
+  kind: AttentionKind
+  key: string
+  label: string
+  app: string | null
+  classified: boolean
+}
+
+export interface AttentionSlice {
+  kind: Exclude<AttentionKind, 'afk'>
+  key: string
+  label: string
+  app: string | null
+  seconds: number
+  classified: boolean
+}
+
+export type FocusStatus =
+  | 'confirmed'
+  | 'recent'
+  | 'unclassified'
+  | 'application'
+  | 'afk'
+  | 'idle'
+  | 'paused'
+  | 'disconnected'
+
+export interface FocusSnapshot {
+  status: FocusStatus
+  label: string
+  projectKey: string | null
+  app: string | null
+  startedAt: string | null
+  continuousSeconds: number
+  projectTodaySeconds: number
+}
+
 export interface ActivitySummary {
   connected: boolean
   tracking: boolean
@@ -125,6 +171,9 @@ export interface ActivitySummary {
   codexUnclassifiedSeconds: number
   codexCoveragePercent: number
   codexContext: CodexContextStatus
+  timeline: TimelineSlice[]
+  attentionSlices: AttentionSlice[]
+  focus: FocusSnapshot
   afkPeriods: AfkPeriod[]
   recentEvents: ActivityEvent[]
   error: string | null
@@ -184,6 +233,9 @@ export interface TimeEfficiencyApi {
   getDiagnostics(): Promise<Diagnostics>
   setProjectAlias(input: ProjectAliasInput): Promise<ActivitySummary>
   showWindow(): Promise<void>
+  showWidget(): Promise<void>
+  hideWidget(): Promise<void>
+  setWidgetExpanded(expanded: boolean): Promise<Settings>
 }
 
 export const IPC = {
@@ -197,5 +249,8 @@ export const IPC = {
   runAiReview: 'ai:run-review',
   getDiagnostics: 'diagnostics:get',
   setProjectAlias: 'projects:set-alias',
-  showWindow: 'window:show'
+  showWindow: 'window:show',
+  showWidget: 'widget:show',
+  hideWidget: 'widget:hide',
+  setWidgetExpanded: 'widget:set-expanded'
 } as const

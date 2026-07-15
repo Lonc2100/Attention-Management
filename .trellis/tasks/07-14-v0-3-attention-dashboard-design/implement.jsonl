@@ -1,0 +1,3 @@
+{"file":".trellis/tasks/07-14-v0-3-attention-dashboard-design/prd.md","reason":"v0.3.0 scope, behavior stories and truthful-state requirements"}
+{"file":".trellis/tasks/07-14-v0-3-attention-dashboard-design/design.md","reason":"dashboard and floating-window interaction decisions"}
+{"file":".trellis/tasks/07-14-v0-3-attention-dashboard-design/research/change-brief.md","reason":"implementation impact, risks and rollback boundaries"}

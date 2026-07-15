@@ -20,7 +20,10 @@ const api: TimeEfficiencyApi = {
   runAiReview: () => ipcRenderer.invoke(IPC.runAiReview),
   getDiagnostics: () => ipcRenderer.invoke(IPC.getDiagnostics),
   setProjectAlias: (input: ProjectAliasInput) => ipcRenderer.invoke(IPC.setProjectAlias, input),
-  showWindow: () => ipcRenderer.invoke(IPC.showWindow)
+  showWindow: () => ipcRenderer.invoke(IPC.showWindow),
+  showWidget: () => ipcRenderer.invoke(IPC.showWidget),
+  hideWidget: () => ipcRenderer.invoke(IPC.hideWidget),
+  setWidgetExpanded: (expanded: boolean) => ipcRenderer.invoke(IPC.setWidgetExpanded, expanded)
 }
 
 contextBridge.exposeInMainWorld('timeEfficiency', api)

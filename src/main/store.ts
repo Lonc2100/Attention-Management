@@ -3,8 +3,8 @@ import { dirname } from 'node:path'
 import type { CodexContextSample, DailyRecord, Settings } from '../shared/contracts'
 import { emptyRecord } from './date'
 
-type PersistedDataV2 = {
-  version: 2
+type PersistedDataV3 = {
+  version: 3
   settings: Settings
   records: Record<string, DailyRecord>
   codexContextSamples: Record<string, CodexContextSample[]>
@@ -26,11 +26,14 @@ export const defaultSettings: Settings = {
   trackingEnabled: true,
   morningReminder: '09:30',
   eveningReminder: '21:30',
-  aiProvider: 'codex-cli'
+  aiProvider: 'codex-cli',
+  widgetMode: 'always-on-top',
+  widgetExpanded: false,
+  widgetPosition: null
 }
 
 export class AppStore {
-  private data: PersistedDataV2
+  private data: PersistedDataV3
   private migrationRequired = false
 
   constructor(private readonly filePath: string) {
@@ -99,13 +102,13 @@ export class AppStore {
     return this.getProjectAliases()
   }
 
-  private load(): PersistedDataV2 {
+  private load(): PersistedDataV3 {
     try {
       if (existsSync(this.filePath)) {
         const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as PersistedDataInput
-        this.migrationRequired = parsed.version !== 2
+        this.migrationRequired = parsed.version !== 3
         return {
-          version: 2,
+          version: 3,
           settings: { ...defaultSettings, ...parsed.settings, aiProvider: 'codex-cli' },
           records: parsed.records ?? {},
           codexContextSamples: parsed.codexContextSamples ?? {},
@@ -116,7 +119,7 @@ export class AppStore {
       console.error('Failed to load app data:', error)
     }
     return {
-      version: 2,
+      version: 3,
       settings: { ...defaultSettings },
       records: {},
       codexContextSamples: {},

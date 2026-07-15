@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, shell, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } from 'electron'
 import type { AfkNote, PlanInput, ReviewInput, Settings } from '../shared/contracts'
 import { IPC } from '../shared/contracts'
 import { ActivityWatchManager } from './activitywatch'
@@ -8,13 +8,16 @@ import { CodexContextTracker } from './codex-context-tracker'
 import { codexDiagnostics, runCodexReview } from './codex'
 import { localDateKey, reminderState } from './date'
 import { AppStore } from './store'
+import { applyWidgetMode, widgetBounds, WIDGET_SIZE } from './floating-window'
 
 let window: BrowserWindow | null = null
+let widgetWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
 let store: AppStore
 let activityWatch: ActivityWatchManager
 let codexContextTracker: CodexContextTracker
+let widgetPositionTimer: NodeJS.Timeout | null = null
 const notified = new Set<string>()
 const e2eMode = process.env.TIME_EFFICIENCY_E2E === '1'
 const startHidden = process.argv.includes('--hidden')
@@ -39,7 +42,7 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
-  if (!e2eMode && !startHidden) window.once('ready-to-show', () => window?.show())
+  if (!startHidden) window.once('ready-to-show', () => window?.show())
   window.on('close', (event) => {
     if (!quitting) {
       event.preventDefault()
@@ -54,6 +57,88 @@ function createWindow(): void {
   else window.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
+function displayAreas() {
+  const primaryId = screen.getPrimaryDisplay().id
+  return screen.getAllDisplays().map((display) => ({
+    id: String(display.id),
+    primary: display.id === primaryId,
+    workArea: display.workArea
+  }))
+}
+
+function widgetUrl(): string {
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    url.searchParams.set('window', 'widget')
+    return url.toString()
+  }
+  return ''
+}
+
+function rememberWidgetPosition(): void {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return
+  if (widgetPositionTimer) clearTimeout(widgetPositionTimer)
+  widgetPositionTimer = setTimeout(() => {
+    if (!widgetWindow || widgetWindow.isDestroyed()) return
+    const bounds = widgetWindow.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    store.updateSettings({ widgetPosition: { x: bounds.x, y: bounds.y, displayId: String(display.id) } })
+  }, 250)
+}
+
+function createWidgetWindow(): void {
+  if (widgetWindow && !widgetWindow.isDestroyed()) return
+  const settings = store.getSettings()
+  const bounds = widgetBounds(displayAreas(), settings)
+  widgetWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: WIDGET_SIZE.collapsed.width,
+    minHeight: WIDGET_SIZE.collapsed.height,
+    maxWidth: WIDGET_SIZE.expanded.width,
+    maxHeight: WIDGET_SIZE.expanded.height,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    hasShadow: true,
+    skipTaskbar: true,
+    title: '时间效率助手 · 悬浮专注窗',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  applyWidgetMode(widgetWindow, settings.widgetMode)
+  widgetWindow.once('ready-to-show', () => widgetWindow?.showInactive())
+  widgetWindow.on('move', rememberWidgetPosition)
+  widgetWindow.on('close', (event) => {
+    if (!quitting) {
+      event.preventDefault()
+      widgetWindow?.hide()
+    }
+  })
+  if (process.env.ELECTRON_RENDERER_URL) void widgetWindow.loadURL(widgetUrl())
+  else void widgetWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { window: 'widget' } })
+}
+
+function showWidget(): void {
+  if (!widgetWindow || widgetWindow.isDestroyed()) createWidgetWindow()
+  widgetWindow?.showInactive()
+}
+
+function setWidgetExpanded(expanded: boolean): Settings {
+  const currentBounds = widgetWindow?.getBounds()
+  const currentDisplay = currentBounds ? screen.getDisplayMatching(currentBounds) : null
+  const settings = store.updateSettings({
+    widgetExpanded: expanded,
+    ...(currentBounds && currentDisplay ? { widgetPosition: { x: currentBounds.x, y: currentBounds.y, displayId: String(currentDisplay.id) } } : {})
+  })
+  if (widgetWindow) widgetWindow.setBounds(widgetBounds(displayAreas(), settings), true)
+  return settings
+}
+
 function createTray(): void {
   const icon = nativeImage.createFromDataURL(
     'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="8" fill="#70e1b2"/><path d="M9 9h14v4h-5v10h-4V13H9z" fill="#08120e"/></svg>').toString('base64')
@@ -63,6 +148,7 @@ function createTray(): void {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '打开时间效率助手', click: () => showWindow() },
+      { label: '显示悬浮专注窗', click: () => showWidget() },
       { type: 'separator' },
       {
         label: '退出',
@@ -176,6 +262,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.updateSettings, (_event, patch: Partial<Settings>) => {
     const settings = store.updateSettings(patch)
     applyLaunchAtLogin(settings.launchAtLogin)
+    if (widgetWindow && !widgetWindow.isDestroyed()) {
+      applyWidgetMode(widgetWindow, settings.widgetMode)
+      if (typeof patch.widgetExpanded === 'boolean') setWidgetExpanded(patch.widgetExpanded)
+    }
     return settings
   })
   ipcMain.handle(IPC.setTracking, async (_event, enabled: boolean) => {
@@ -202,6 +292,12 @@ function registerIpc(): void {
     return activitySummary(localDateKey())
   })
   ipcMain.handle(IPC.showWindow, () => showWindow())
+  ipcMain.handle(IPC.showWidget, () => showWidget())
+  ipcMain.handle(IPC.hideWidget, () => widgetWindow?.hide())
+  ipcMain.handle(IPC.setWidgetExpanded, (_event, expanded: unknown) => {
+    if (typeof expanded !== 'boolean') throw new Error('悬浮窗展开状态无效')
+    return setWidgetExpanded(expanded)
+  })
 }
 
 function checkReminders(): void {
@@ -236,6 +332,7 @@ else {
     }
     codexContextTracker.start(() => localDateKey())
     createWindow()
+    createWidgetWindow()
     if (!e2eMode) createTray()
     if (!e2eMode) {
       checkReminders()
@@ -246,6 +343,7 @@ else {
 
 app.on('before-quit', () => {
   quitting = true
+  if (widgetPositionTimer) clearTimeout(widgetPositionTimer)
   codexContextTracker?.stop()
   activityWatch?.stopAll()
 })

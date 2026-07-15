@@ -8,7 +8,7 @@ import type {
   OutcomeStatus,
   Settings
 } from '../../shared/contracts'
-import { CodexContextBanner, ProjectAttentionPanel } from './CodexAttention'
+import { TodayDashboard } from './TodayDashboard'
 
 type View = 'today' | 'plan' | 'review' | 'diagnostics' | 'settings'
 
@@ -34,6 +34,9 @@ const EMPTY_ACTIVITY: ActivitySummary = {
     lastDetectedAt: null,
     error: null
   },
+  timeline: [],
+  attentionSlices: [],
+  focus: { status: 'disconnected', label: '采集服务未连接', projectKey: null, app: null, startedAt: null, continuousSeconds: 0, projectTodaySeconds: 0 },
   afkPeriods: [],
   recentEvents: [],
   error: null,
@@ -126,7 +129,7 @@ export default function App() {
         {view === 'plan' && <Plan data={data} busy={busy} run={run} onReload={load} />}
         {view === 'review' && <ReviewView data={data} busy={busy} run={run} onReload={load} />}
         {view === 'diagnostics' && <DiagnosticsView initial={data.diagnostics} busy={busy} run={run} />}
-        {view === 'settings' && <SettingsView settings={data.settings} busy={busy} run={run} setSettings={setSettings} />}
+        {view === 'settings' && <SettingsView settings={data.settings} activity={data.activity} busy={busy} run={run} setSettings={setSettings} setActivity={setActivity} onReload={load} />}
       </main>
     </div>
   )
@@ -144,34 +147,8 @@ function Today({ data, busy, setView, run, setActivity, onReload }: {
   setActivity: (activity: ActivitySummary) => void
   onReload: () => Promise<void>
 }) {
-  return <>
-    {(data.reminders.morningDue || data.reminders.eveningDue) && <section className="reminder">
-      <div><strong>{data.reminders.eveningDue ? '你错过了晚间复盘时间' : '今天还没有确认计划'}</strong><p>这是根据本地完成状态生成的补提醒，不依赖关机时运行。</p></div>
-      <button className="primary" onClick={() => setView(data.reminders.eveningDue ? 'review' : 'plan')}>现在完成</button>
-    </section>}
-    <CodexContextBanner activity={data.activity} />
-    <section className="metrics">
-      <Metric label="电脑活跃" value={duration(data.activity.activeSeconds)} note="已排除检测到的 AFK" />
-      <Metric label="Codex 注意力" value={duration(data.activity.codexActiveSeconds)} note="只计算前台且非 AFK" />
-      <Metric label="项目分类覆盖" value={`${data.activity.codexCoveragePercent}%`} note={data.activity.codexUnclassifiedSeconds ? `${duration(data.activity.codexUnclassifiedSeconds)} 待分类` : '当前没有待分类时间'} />
-      <Metric label="重要成果" value={`${data.record.outcomes.length} / 3`} note={data.record.review ? '今日已复盘' : '以完成结果为准'} />
-    </section>
-    <section className="grid two">
-      <article className="panel">
-        <div className="panel-head"><div><p className="eyebrow">RESULTS FIRST</p><h2>今天最重要的成果</h2></div><button className="text-button" onClick={() => setView('plan')}>编辑</button></div>
-        {data.record.outcomes.length ? <div className="outcome-list">{data.record.outcomes.map((outcome) => <div className="outcome" key={outcome.id}><span className={outcome.id === data.record.priorityOutcomeId ? 'priority-dot' : 'dot'} /> <div><strong>{outcome.title}</strong><small>{outcome.id === data.record.priorityOutcomeId ? '绝对优先项' : '重要成果'}</small></div></div>)}</div> : <Empty text="还没有计划。先写下今天必须产生的结果。" action="开始早间计划" onClick={() => setView('plan')} />}
-      </article>
-      <ProjectAttentionPanel activity={data.activity} busy={busy} run={run} onChange={setActivity} />
-    </section>
-    <section className="panel app-panel">
-      <div className="panel-head"><div><p className="eyebrow">REAL DATA</p><h2>全部应用时间</h2></div><button className="text-button" disabled={busy === 'refresh'} onClick={() => run('refresh', async () => setActivity(await window.timeEfficiency.refreshActivity()))}>{busy === 'refresh' ? '刷新中…' : '刷新'}</button></div>
-      {!data.activity.connected ? <Empty text={data.activity.error ?? 'ActivityWatch 尚未连接。'} action="查看诊断" onClick={() => setView('diagnostics')} /> : data.activity.apps.length ? <div className="usage-list app-usage">{data.activity.apps.slice(0, 8).map((app) => <div key={app.app}><div><strong>{app.app}</strong><span>{duration(app.seconds)}</span></div><div className="bar"><i style={{ width: `${Math.max(4, (app.seconds / data.activity.apps[0].seconds) * 100)}%` }} /></div><small title={app.topTitles[0]?.title}>{app.topTitles[0]?.title}</small></div>)}</div> : <Empty text="连接成功，正在等待第一批窗口事件。" />}
-    </section>
-    <section className="panel">
-      <div className="panel-head"><div><p className="eyebrow">CONTROL</p><h2>采集控制</h2></div><span className="muted">更新于 {clock(data.activity.updatedAt)}</span></div>
-      <div className="control-row"><div><strong>{data.activity.tracking ? '窗口与离开检测正在运行' : '采集已由你暂停'}</strong><p>只记录前台应用、窗口标题和 AFK，不录屏、不记录按键正文。</p></div><button className={data.activity.tracking ? 'danger' : 'primary'} disabled={busy === 'tracking'} onClick={() => run('tracking', async () => { setActivity(await window.timeEfficiency.setTracking(!data.activity.tracking)); await onReload() })}>{busy === 'tracking' ? '处理中…' : data.activity.tracking ? '暂停采集' : '恢复采集'}</button></div>
-    </section>
-  </>
+  void onReload
+  return <TodayDashboard data={data} busy={busy} onView={setView} run={run} onActivity={setActivity} />
 }
 
 function Plan({ data, busy, run, onReload }: { data: BootstrapData; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; onReload: () => Promise<void> }) {
@@ -223,9 +200,19 @@ function DiagnosticsView({ initial, busy, run }: { initial: Diagnostics; busy: s
   return <section className="panel"><div className="panel-head"><div><p className="eyebrow">NO FAKE GREEN LIGHTS</p><h2>真实链路状态</h2></div><button className="secondary" disabled={busy === 'diagnostics'} onClick={() => run('diagnostics', async () => setItems(await window.timeEfficiency.getDiagnostics()))}>{busy === 'diagnostics' ? '检测中…' : '重新检测'}</button></div><div className="diagnostics">{Object.entries(items).map(([key, value]) => <div key={key}><span className={value.ok ? 'ok' : 'bad'}>{value.ok ? '✓' : '!'}</span><div><strong>{({ activityWatch: 'ActivityWatch 服务', windowWatcher: '窗口采集桶', afkWatcher: 'AFK 采集桶', storage: '本地数据', codexCli: 'Codex CLI', codexContext: 'Codex 项目识别', launchAtLogin: 'Windows 自启动' } as Record<string, string>)[key]}</strong><small>{value.detail}</small></div></div>)}</div></section>
 }
 
-function SettingsView({ settings, busy, run, setSettings }: { settings: Settings; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; setSettings: (settings: Settings) => void }) {
+function SettingsView({ settings, activity, busy, run, setSettings, setActivity, onReload }: { settings: Settings; activity: ActivitySummary; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; setSettings: (settings: Settings) => void; setActivity: (activity: ActivitySummary) => void; onReload: () => Promise<void> }) {
   const update = (patch: Partial<Settings>) => run('settings', async () => setSettings(await window.timeEfficiency.updateSettings(patch)))
-  return <section className="panel settings"><SettingRow title="登录 Windows 后自动启动" note="默认开启；你可以随时关闭。"><button className={`switch ${settings.launchAtLogin ? 'on' : ''}`} disabled={busy === 'settings'} onClick={() => update({ launchAtLogin: !settings.launchAtLogin })}><i /></button></SettingRow><SettingRow title="早间计划提醒" note="若当时关机，会在下次启动时补提醒。"><input type="time" value={settings.morningReminder} onChange={(event) => update({ morningReminder: event.target.value })} /></SettingRow><SettingRow title="晚间复盘提醒" note="初始固定时间；后续可根据个人规律调整。"><input type="time" value={settings.eveningReminder} onChange={(event) => update({ eveningReminder: event.target.value })} /></SettingRow><SettingRow title="AI 通道" note="使用本机已登录的 Codex CLI，不需要额外 API Key。"><span className="chip">Codex CLI</span></SettingRow></section>
+  return <section className="panel settings">
+    <div className="settings-group"><p className="eyebrow">FLOATING FOCUS</p><h2>悬浮专注窗</h2></div>
+    <SettingRow title="显示悬浮专注窗" note="显示当前项目与连续专注时间；隐藏后仍可从托盘恢复。"><button className="secondary" onClick={() => window.timeEfficiency.showWidget()}>显示悬浮窗</button></SettingRow>
+    <SettingRow title="悬浮方式" note="置顶模式持续可见；桌面模式允许其他窗口覆盖它。"><select aria-label="悬浮方式" value={settings.widgetMode} disabled={busy === 'settings'} onChange={(event) => update({ widgetMode: event.target.value as Settings['widgetMode'] })}><option value="always-on-top">默认置顶</option><option value="desktop">停留桌面</option></select></SettingRow>
+    <div className="settings-group separated"><p className="eyebrow">CAPTURE</p><h2>采集与启动</h2></div>
+    <SettingRow title="时间采集" note="只记录前台应用、窗口标题和 AFK；不录屏、不记录按键正文。"><button className={activity.tracking ? 'danger' : 'primary'} disabled={busy === 'tracking'} onClick={() => run('tracking', async () => { setActivity(await window.timeEfficiency.setTracking(!activity.tracking)); await onReload() })}>{busy === 'tracking' ? '处理中…' : activity.tracking ? '暂停采集' : '恢复采集'}</button></SettingRow>
+    <SettingRow title="登录 Windows 后自动启动" note="默认开启；你可以随时关闭。"><button className={`switch ${settings.launchAtLogin ? 'on' : ''}`} disabled={busy === 'settings'} onClick={() => update({ launchAtLogin: !settings.launchAtLogin })}><i /></button></SettingRow>
+    <SettingRow title="早间计划提醒" note="若当时关机，会在下次启动时补提醒。"><input type="time" value={settings.morningReminder} onChange={(event) => update({ morningReminder: event.target.value })} /></SettingRow>
+    <SettingRow title="晚间复盘提醒" note="初始固定时间；后续可根据个人规律调整。"><input type="time" value={settings.eveningReminder} onChange={(event) => update({ eveningReminder: event.target.value })} /></SettingRow>
+    <SettingRow title="AI 通道" note="使用本机已登录的 Codex CLI，不需要额外 API Key。"><span className="chip">Codex CLI</span></SettingRow>
+  </section>
 }
 
 function SettingRow({ title, note, children }: { title: string; note: string; children: ReactNode }) {

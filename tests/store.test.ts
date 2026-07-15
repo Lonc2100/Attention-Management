@@ -47,7 +47,7 @@ describe('local persistence', () => {
     expect(store.getSettings().morningReminder).toBe('08:45')
     expect(store.getCodexContextSamples('2026-07-14')).toEqual([])
     const migratedImmediately = JSON.parse(readFileSync(file, 'utf8')) as { version: number; codexContextSamples?: unknown; projectAliases?: unknown }
-    expect(migratedImmediately.version).toBe(2)
+    expect(migratedImmediately.version).toBe(3)
     expect(migratedImmediately.codexContextSamples).toEqual({})
     expect(migratedImmediately.projectAliases).toEqual({})
 
@@ -71,6 +71,32 @@ describe('local persistence', () => {
     expect(store.getProjectAliases()).toEqual({ 'cwd:d:\\codex work\\attention-management': '时间效率助手' })
 
     const persisted = JSON.parse(readFileSync(file, 'utf8')) as { version: number }
-    expect(persisted.version).toBe(2)
+    expect(persisted.version).toBe(3)
+  })
+
+  it('migrates v2 settings with safe floating-widget defaults and persists placement', () => {
+    const directory = join(process.cwd(), 'tests', '.data')
+    const file = join(directory, 'migration-v3.json')
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(file, JSON.stringify({
+      version: 2,
+      settings: { launchAtLogin: false, trackingEnabled: true, morningReminder: '10:00', eveningReminder: '22:00', aiProvider: 'codex-cli' },
+      records: {},
+      codexContextSamples: {},
+      projectAliases: {}
+    }), 'utf8')
+
+    const store = new AppStore(file)
+    expect(store.getSettings()).toMatchObject({
+      launchAtLogin: false,
+      widgetMode: 'always-on-top',
+      widgetExpanded: false,
+      widgetPosition: null
+    })
+    store.updateSettings({ widgetExpanded: true, widgetPosition: { x: 1200, y: 24, displayId: 'display-2' } })
+    expect(new AppStore(file).getSettings()).toMatchObject({
+      widgetExpanded: true,
+      widgetPosition: { x: 1200, y: 24, displayId: 'display-2' }
+    })
   })
 })

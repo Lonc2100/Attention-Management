@@ -32,9 +32,19 @@ async function launch() {
     env: { ...process.env, TIME_EFFICIENCY_E2E: '1' },
     timeout: 30_000
   })
-  const page = await electronApp.firstWindow({ timeout: 30_000 })
+  await electronApp.firstWindow({ timeout: 30_000 })
+  const deadline = Date.now() + 30_000
+  while (electronApp.windows().length < 2 && Date.now() < deadline) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+  }
+  const windows = electronApp.windows()
+  const page = windows.find((candidate) => !candidate.url().includes('window=widget'))
+  const widget = windows.find((candidate) => candidate.url().includes('window=widget'))
+  assert.ok(page, 'main window was not created')
+  assert.ok(widget, 'floating widget window was not created')
   page.setDefaultTimeout(30_000)
-  return { electronApp, page }
+  widget.setDefaultTimeout(30_000)
+  return { electronApp, page, widget }
 }
 
 let app = await launch()
@@ -47,9 +57,44 @@ try {
     await runningStatus.waitFor()
   }
   record('ActivityWatch UI status', 'connected and tracking')
-  await app.page.getByText('项目注意力', { exact: true }).waitFor()
-  await app.page.getByText(/等待确认 Codex 上下文|正在计入：|最近确认：/).waitFor()
-  record('Automatic Codex context UI', 'context banner and project attention panel rendered without a manual switch')
+  await app.page.getByTestId('attention-overview').waitFor()
+  await app.page.getByTestId('attention-timeline').waitFor()
+  await app.page.getByTestId('focus-strip').waitFor()
+  for (const [width, height] of [[1440, 900], [1600, 1000]]) {
+    await app.electronApp.evaluate(({ BrowserWindow }, size) => {
+      const main = BrowserWindow.getAllWindows().find((item) => !item.webContents.getURL().includes('window=widget'))
+      main?.setBounds({ x: 40, y: 40, width: size.width, height: size.height })
+    }, { width, height })
+    await app.page.waitForTimeout(200)
+    const noHorizontalOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    assert.equal(noHorizontalOverflow, true, `dashboard overflowed horizontally at ${width}x${height}`)
+    await app.page.screenshot({ path: join(artifacts, `e2e-attention-dashboard-${width}x${height}.png`), fullPage: false, timeout: 30_000 })
+  }
+  record('Attention dashboard', 'unified attention overview, chronological timeline and truthful focus state rendered')
+
+  await app.widget.getByTestId('floating-widget').waitFor()
+  if (!await app.widget.getByText('今日电脑活跃', { exact: true }).isVisible()) {
+    await app.widget.getByRole('button', { name: '展开悬浮窗' }).click()
+  }
+  await app.widget.getByText('今日电脑活跃', { exact: true }).waitFor()
+  await app.widget.screenshot({ path: join(artifacts, 'e2e-widget-expanded.png'), timeout: 30_000 })
+  record('Floating widget', 'widget rendered independently and expanded without opening the main window')
+  await app.widget.getByRole('button', { name: '隐藏' }).click()
+  const widgetHidden = await app.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().includes('window=widget'))?.isVisible() === false)
+  assert.equal(widgetHidden, true, 'widget did not hide')
+  await app.page.getByRole('button', { name: '设置' }).click()
+  await app.page.getByRole('button', { name: '显示悬浮窗' }).click()
+  const widgetVisible = await app.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().includes('window=widget'))?.isVisible() === true)
+  assert.equal(widgetVisible, true, 'widget did not reopen from settings')
+  const widgetDidNotStealFocus = await app.electronApp.evaluate(({ BrowserWindow }) => !BrowserWindow.getFocusedWindow()?.webContents.getURL().includes('window=widget'))
+  assert.equal(widgetDidNotStealFocus, true, 'showing the widget stole focus from the active work window')
+  await app.page.getByLabel('悬浮方式').selectOption('desktop')
+  const desktopMode = await app.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().includes('window=widget'))?.isAlwaysOnTop() === false)
+  assert.equal(desktopMode, true, 'desktop widget mode did not disable always-on-top')
+  await app.page.getByLabel('悬浮方式').selectOption('always-on-top')
+  const topMode = await app.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().includes('window=widget'))?.isAlwaysOnTop() === true)
+  assert.equal(topMode, true, 'always-on-top widget mode was not restored')
+  record('Floating widget lifecycle', 'hide, reopen, desktop mode and always-on-top mode worked')
 
   await app.page.getByRole('button', { name: /^早间计划/ }).click()
   const inputs = app.page.locator('.outcome-input input:last-child')
@@ -74,7 +119,7 @@ try {
   assert.ok(aiText.length > 20, 'AI answer was unexpectedly short')
   record('Codex CLI UI path', `${aiText.length} Chinese characters returned and rendered`)
 
-  await app.page.getByRole('button', { name: '今日概览' }).click()
+  await app.page.getByRole('button', { name: '设置' }).click()
   const beforePause = processes()
   await app.page.getByRole('button', { name: '暂停采集' }).click()
   await app.page.getByText('采集已暂停', { exact: true }).waitFor()
@@ -108,7 +153,10 @@ try {
 await new Promise((resolveWait) => setTimeout(resolveWait, 1000))
 app = await launch()
 try {
-  await app.page.getByText('交付真实时间效率闭环').waitFor()
+  await app.page.getByRole('button', { name: /^早间计划/ }).click()
+  const persistedOutcome = app.page.locator('.outcome-input input:last-child').nth(0)
+  await persistedOutcome.waitFor()
+  assert.equal(await persistedOutcome.inputValue(), '交付真实时间效率闭环')
   await app.page.getByRole('button', { name: /^晚间复盘/ }).click()
   assert.equal(await app.page.locator('textarea').inputValue(), '完成了真实采集、持久化和界面链路。')
   record('Restart persistence', 'morning plan and evening review survived app restart')

@@ -71,7 +71,11 @@ try {
     const timelineBox = await app.page.getByTestId('attention-timeline').boundingBox()
     assert.ok(timelineBox && timelineBox.y + timelineBox.height <= height, `timeline was not fully visible at ${width}x${height}`)
     await app.page.mouse.move(350, 40)
-    await app.page.screenshot({ path: join(artifacts, `e2e-attention-dashboard-${width}x${height}.png`), fullPage: false, timeout: 30_000 })
+    try {
+      await app.page.screenshot({ path: join(artifacts, `e2e-attention-dashboard-${width}x${height}.png`), fullPage: false, timeout: 15_000 })
+    } catch (error) {
+      process.stdout.write(`WARN dashboard screenshot was not captured: ${error instanceof Error ? error.message : String(error)}\n`)
+    }
   }
   const donutGroup = app.page.locator('.attention-donut__segment').first()
   const donutTarget = donutGroup.locator('[data-chart-target="donut"]')
@@ -142,7 +146,11 @@ try {
   }
   const detailsOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   assert.equal(detailsOverflow, true, 'activity details overflowed horizontally')
-  await app.page.screenshot({ path: join(artifacts, 'e2e-activity-details.png'), fullPage: false, timeout: 30_000 })
+  try {
+    await app.page.screenshot({ path: join(artifacts, 'e2e-activity-details.png'), fullPage: false, timeout: 30_000 })
+  } catch (error) {
+    process.stdout.write(`WARN activity-details screenshot was not captured: ${error instanceof Error ? error.message : String(error)}\n`)
+  }
   await app.page.getByRole('button', { name: /归类规则/ }).click()
   await app.page.locator('.rule-manager').waitFor()
   record('Activity details', 'timeline, evidence drawer, reversible correction, learned rule creation/deletion, filters, and rule manager rendered')
@@ -154,7 +162,11 @@ try {
     await app.widget.getByRole('button', { name: '展开悬浮窗' }).click()
   }
   await app.widget.getByText('电脑活跃', { exact: true }).waitFor()
-  await app.widget.screenshot({ path: join(artifacts, 'e2e-widget-expanded.png'), timeout: 30_000 })
+  try {
+    await app.widget.screenshot({ path: join(artifacts, 'e2e-widget-expanded.png'), timeout: 15_000 })
+  } catch (error) {
+    process.stdout.write(`WARN widget screenshot was not captured: ${error instanceof Error ? error.message : String(error)}\n`)
+  }
   record('Floating widget', 'widget rendered independently and expanded without opening the main window')
   await app.widget.getByRole('button', { name: '隐藏' }).click()
   const widgetHidden = await app.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().includes('window=widget'))?.isVisible() === false)
@@ -178,9 +190,19 @@ try {
   await inputs.nth(0).fill('交付真实时间效率闭环')
   await inputs.nth(1).fill('验证 ActivityWatch 真实采集')
   await app.page.locator('.outcome-input input[type="radio"]').nth(0).check()
+  const firstProjectChip = app.page.locator('.plan-outcome-card').nth(0).locator('.project-picker label').first()
+  assert.ok(await firstProjectChip.count(), 'plan did not expose known projects for outcome linking')
+  const linkedProjectLabel = (await firstProjectChip.innerText()).trim()
+  if (!await firstProjectChip.locator('input').isChecked()) await firstProjectChip.click()
   await app.page.getByRole('button', { name: /确认，开始今天|更新今日计划/ }).click()
   await app.page.getByRole('button', { name: /更新今日计划/ }).waitFor()
-  record('Morning plan', 'saved 2 outcomes and one absolute priority')
+  record('Morning plan', `saved 2 outcomes, one absolute priority, and linked ${linkedProjectLabel}`)
+
+  await app.page.getByRole('button', { name: '今日概览' }).click()
+  const priorityEvidence = app.page.getByTestId('priority-outcome-evidence')
+  await priorityEvidence.waitFor()
+  assert.ok((await priorityEvidence.innerText()).includes(linkedProjectLabel), 'dashboard did not render linked outcome evidence')
+  record('Outcome evidence dashboard', 'absolute priority rendered with explicit project-only attention evidence')
 
   await app.page.getByRole('button', { name: /^晚间复盘/ }).click()
   await app.page.locator('.review-outcomes select').nth(0).selectOption('done')
@@ -188,8 +210,17 @@ try {
   await app.page.locator('textarea').fill('完成了真实采集、持久化和界面链路。')
   await app.page.locator('.field.block input').fill('继续完成安装包与启动验收。')
   await app.page.getByRole('button', { name: '保存今日复盘' }).click()
-  record('Evening review', 'saved result statuses, summary and tomorrow intent')
+  assert.ok((await app.page.locator('.review-outcomes').innerText()).includes('项目注意力'), 'review did not render outcome attention evidence')
+  record('Evening review', 'saved result statuses, summary, tomorrow intent, and rendered linked attention evidence')
 
+  await app.page.getByRole('button', { name: '个人规律' }).click()
+  await app.page.getByTestId('personal-insights').waitFor()
+  await app.page.getByRole('button', { name: '近 14 天' }).click()
+  await app.page.getByText('近 14 天', { exact: true }).last().waitFor()
+  assert.equal(await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'personal insights overflowed horizontally')
+  record('Personal insights', '7/14-day range, evidence quality state, and daily facts rendered without a productivity score')
+
+  await app.page.getByRole('button', { name: /^晚间复盘/ }).click()
   await app.page.getByRole('button', { name: /调用 Codex 生成复盘|重新分析/ }).click()
   await app.page.locator('.ai-answer').waitFor({ timeout: 130_000 })
   const aiText = (await app.page.locator('.ai-answer').innerText()).trim()
@@ -234,6 +265,7 @@ try {
   const persistedOutcome = app.page.locator('.outcome-input input:last-child').nth(0)
   await persistedOutcome.waitFor()
   assert.equal(await persistedOutcome.inputValue(), '交付真实时间效率闭环')
+  assert.ok(await app.page.locator('.plan-outcome-card').nth(0).locator('.project-picker label.selected').count(), 'outcome project link did not survive restart')
   await app.page.getByRole('button', { name: /^晚间复盘/ }).click()
   assert.equal(await app.page.locator('textarea').inputValue(), '完成了真实采集、持久化和界面链路。')
   record('Restart persistence', 'morning plan and evening review survived app restart')

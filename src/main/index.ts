@@ -11,11 +11,12 @@ import type {
   Settings
 } from '../shared/contracts'
 import { IPC } from '../shared/contracts'
+import { buildPersonalInsights } from '../shared/outcome-insights'
 import { ActivityWatchManager } from './activitywatch'
 import { CodexAppServerClient } from './codex-app-server'
 import { CodexContextTracker } from './codex-context-tracker'
 import { codexDiagnostics, runCodexReview } from './codex'
-import { localDateKey, reminderState } from './date'
+import { localDateKey, recentDateKeys, reminderState } from './date'
 import { AppStore } from './store'
 import { applyWidgetMode, widgetBounds, WIDGET_SIZE } from './floating-window'
 
@@ -62,8 +63,13 @@ function createWindow(): void {
     if (/^https?:/.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
-  if (process.env.ELECTRON_RENDERER_URL) window.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else window.loadFile(join(__dirname, '../renderer/index.html'))
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    if (e2eMode) url.searchParams.set('e2e', '1')
+    void window.loadURL(url.toString())
+  } else {
+    void window.loadFile(join(__dirname, '../renderer/index.html'), e2eMode ? { query: { e2e: '1' } } : undefined)
+  }
 }
 
 function displayAreas() {
@@ -79,6 +85,7 @@ function widgetUrl(): string {
   if (process.env.ELECTRON_RENDERER_URL) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL)
     url.searchParams.set('window', 'widget')
+    if (e2eMode) url.searchParams.set('e2e', '1')
     return url.toString()
   }
   return ''
@@ -129,7 +136,7 @@ function createWidgetWindow(): void {
     }
   })
   if (process.env.ELECTRON_RENDERER_URL) void widgetWindow.loadURL(widgetUrl())
-  else void widgetWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { window: 'widget' } })
+  else void widgetWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { window: 'widget', ...(e2eMode ? { e2e: '1' } : {}) } })
 }
 
 function showWidget(): void {
@@ -227,6 +234,31 @@ async function activitySummary(date: string) {
   )
 }
 
+async function historicalActivitySummary(date: string) {
+  const record = store.getRecordSnapshot(date)
+  return activityWatch.getSummary(
+    date,
+    record.afkNotes,
+    store.getCodexContextSamples(date),
+    store.getProjectAliases(),
+    date === localDateKey() ? codexContextTracker?.getStatus() : undefined,
+    store.getClassificationRules(),
+    store.getActivityOverrides(date),
+    store.getManualProjects()
+  )
+}
+
+async function personalInsights(days: 7 | 14 | 30) {
+  const inputs = []
+  for (const date of recentDateKeys(days)) {
+    inputs.push({
+      record: store.getRecordSnapshot(date),
+      activity: await historicalActivitySummary(date)
+    })
+  }
+  return buildPersonalInsights(inputs, days)
+}
+
 async function activityDetails(date: string) {
   const details = await activityWatch.getDetails(
     date,
@@ -259,7 +291,8 @@ async function bootstrap() {
     settings,
     activity: await activitySummary(date),
     reminders: reminderState(record, settings),
-    diagnostics: await diagnostics()
+    diagnostics: await diagnostics(),
+    projectOptions: store.getKnownProjectOptions()
   }
 }
 
@@ -270,7 +303,14 @@ function registerIpc(): void {
     return activitySummary(key)
   })
   ipcMain.handle(IPC.savePlan, (_event, input: PlanInput) => {
-    const outcomes = input.outcomes.map((item) => ({ ...item, title: item.title.trim() })).filter((item) => item.title).slice(0, 3)
+    const knownProjectKeys = new Set(store.getKnownProjectOptions().map((project) => project.key))
+    const outcomes = input.outcomes.map((item) => ({
+      ...item,
+      title: item.title.trim(),
+      projectKeys: [...new Set((Array.isArray(item.projectKeys) ? item.projectKeys : [])
+        .map((key) => key.trim())
+        .filter((key) => knownProjectKeys.has(key)))]
+    })).filter((item) => item.title).slice(0, 3)
     if (!outcomes.length) throw new Error('至少填写一个重要成果')
     if (!outcomes.some((item) => item.id === input.priorityOutcomeId)) throw new Error('请选择一个绝对优先项')
     return store.updateRecord(localDateKey(), (record) => ({
@@ -401,6 +441,10 @@ function registerIpc(): void {
     if (!validDate(input?.date) || typeof input?.ruleId !== 'string') throw new Error('删除规则参数无效')
     store.removeClassificationRule(input.ruleId)
     return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.getInsights, (_event, days: unknown) => {
+    if (days !== 7 && days !== 14 && days !== 30) throw new Error('个人规律时间范围无效')
+    return personalInsights(days)
   })
   ipcMain.handle(IPC.showWindow, () => showWindow())
   ipcMain.handle(IPC.showWidget, () => showWidget())

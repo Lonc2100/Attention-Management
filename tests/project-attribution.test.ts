@@ -23,7 +23,7 @@ const sample = (detectedAt: number, current: CodexThreadSummary): CodexContextSa
     source: current.source,
     projectKey: identity.key,
     projectLabel: identity.label,
-    identitySource: identity.source === 'alias' ? 'fallback' : identity.source
+    identitySource: identity.source === 'alias' || identity.source === 'manual' ? 'fallback' : identity.source
   }
 }
 

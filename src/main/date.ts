@@ -7,6 +7,16 @@ export function localDateKey(now = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+export function recentDateKeys(days: number, now = new Date()): string[] {
+  const count = Math.max(1, Math.min(366, Math.floor(days)))
+  const anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(anchor)
+    date.setDate(anchor.getDate() - (count - 1 - index))
+    return localDateKey(date)
+  })
+}
+
 export function dayBounds(date: string): { start: string; end: string } {
   const startDate = new Date(`${date}T00:00:00`)
   const endDate = new Date(startDate)

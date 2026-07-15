@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process'
 import type { ActivitySummary, DailyRecord } from '../shared/contracts'
+import { buildOutcomeEvidence } from '../shared/outcome-insights'
 import { resolveCodexExecutable } from './codex-executable'
 
 export async function codexDiagnostics(): Promise<{ ok: boolean; detail: string }> {
@@ -14,10 +15,12 @@ export async function codexDiagnostics(): Promise<{ ok: boolean; detail: string 
 }
 
 export function buildCodexReviewPayload(record: DailyRecord, activity: ActivitySummary) {
-  const outcomes = record.outcomes.map((outcome) => ({
+  const outcomes = buildOutcomeEvidence(record, activity).map((outcome) => ({
     title: outcome.title,
-    priority: outcome.id === record.priorityOutcomeId,
-    status: record.review?.outcomeStatuses[outcome.id] ?? 'pending'
+    priority: outcome.priority,
+    status: outcome.status,
+    projects: outcome.projectLabels,
+    attentionMinutes: Math.round(outcome.attentionSeconds / 60)
   }))
   return {
     date: record.date,

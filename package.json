@@ -1,6 +1,6 @@
 {
   "name": "time-efficiency-assistant",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "description": "Windows local-first time efficiency assistant powered by ActivityWatch and Codex CLI",
   "main": "out/main/index.js",
@@ -12,7 +12,9 @@
     "setup:activitywatch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-activitywatch.ps1",
     "test": "vitest run",
     "test:e2e": "npm run build && node tests/e2e.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "typecheck:node": "tsc -p tsconfig.node.json --noEmit --tsBuildInfoFile node_modules/.cache/attention-tsconfig.node.tsbuildinfo",
+    "typecheck:web": "tsc -p tsconfig.web.json --noEmit --tsBuildInfoFile node_modules/.cache/attention-tsconfig.web.tsbuildinfo",
     "dist": "npm run setup:activitywatch && npm run test && npm run typecheck && npm run build && electron-builder --win nsis"
   },
   "dependencies": {

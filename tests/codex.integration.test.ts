@@ -6,7 +6,7 @@ import { emptyRecord } from '../src/main/date'
 describe.skipIf(process.env.RUN_CODEX_INTEGRATION !== '1')('Codex CLI integration', () => {
   it('returns a real parsed agent message', async () => {
     const record = emptyRecord('2026-07-14')
-    record.outcomes = [{ id: 'one', title: '验证真实 AI 链路' }]
+    record.outcomes = [{ id: 'one', title: '验证真实 AI 链路', projectKeys: [] }]
     record.priorityOutcomeId = 'one'
     const activity = { ...disconnectedSummary(true, ''), connected: true, error: null }
     const answer = await runCodexReview(record, activity)

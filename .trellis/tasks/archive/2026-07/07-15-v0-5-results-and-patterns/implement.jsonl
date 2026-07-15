@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/shared/code-quality.md", "reason": "Cross-layer TypeScript quality and no unsafe assertions"}
+{"file": ".trellis/spec/frontend/ipc-electron.md", "reason": "Typed IPC contract for plan and insights"}
+{"file": ".trellis/spec/guides/semantic-change-checklist.md", "reason": "Outcome schema migration from v4 to v5"}
+{"file": ".trellis/tasks/07-15-v0-5-results-and-patterns/research/foundations.md", "reason": "External foundation decisions and non-goals"}

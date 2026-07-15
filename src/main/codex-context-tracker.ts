@@ -113,7 +113,7 @@ export class CodexContextTracker {
       }
       const detectedAt = this.now()
       const identity = deriveProjectIdentity(current, {})
-      const identitySource = identity.source === 'alias' ? 'fallback' : identity.source
+      const identitySource = identity.source === 'alias' || identity.source === 'manual' ? 'fallback' : identity.source
       const sample: CodexContextSample = {
         detectedAt,
         threadId: current.id,

@@ -1,0 +1,28 @@
+{
+  "id": "windows-v1-roadmap",
+  "name": "windows-v1-roadmap",
+  "title": "Attention Management Windows v1.0 连续路线",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "cross-version-governance",
+  "package": null,
+  "priority": "P2",
+  "creator": "王龙",
+  "assignee": "王龙",
+  "createdAt": "2026-07-15",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-15-v0-5-results-and-patterns"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

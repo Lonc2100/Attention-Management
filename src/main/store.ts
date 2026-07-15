@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { ActivityOverride, ActivityRule, CodexContextSample, DailyRecord, ProjectOption, Settings } from '../shared/contracts'
+import type { ActivityOverride, ActivityRule, CodexContextSample, DailyRecord, Outcome, ProjectOption, Settings } from '../shared/contracts'
 import { emptyRecord } from './date'
 
-type PersistedDataV4 = {
-  version: 4
+type PersistedDataV5 = {
+  version: 5
   settings: Settings
   records: Record<string, DailyRecord>
   codexContextSamples: Record<string, CodexContextSample[]>
@@ -27,6 +27,17 @@ type PersistedDataInput = {
 const MAX_CONTEXT_SAMPLES_PER_DAY = 5_000
 const MAX_CONTEXT_DAYS = 120
 
+function normalizeOutcome(outcome: Outcome): Outcome {
+  const projectKeys = Array.isArray(outcome.projectKeys)
+    ? [...new Set(outcome.projectKeys.filter((key): key is string => typeof key === 'string').map((key) => key.trim()).filter(Boolean))]
+    : []
+  return { ...outcome, projectKeys }
+}
+
+function normalizeRecord(record: DailyRecord): DailyRecord {
+  return { ...record, outcomes: Array.isArray(record.outcomes) ? record.outcomes.map(normalizeOutcome) : [] }
+}
+
 export const defaultSettings: Settings = {
   launchAtLogin: true,
   trackingEnabled: true,
@@ -39,7 +50,7 @@ export const defaultSettings: Settings = {
 }
 
 export class AppStore {
-  private data: PersistedDataV4
+  private data: PersistedDataV5
   private migrationRequired = false
 
   constructor(private readonly filePath: string) {
@@ -67,6 +78,10 @@ export class AppStore {
       this.data.records[date] = emptyRecord(date)
       this.save()
     }
+    return structuredClone(this.data.records[date] ?? emptyRecord(date))
+  }
+
+  getRecordSnapshot(date: string): DailyRecord {
     return structuredClone(this.data.records[date] ?? emptyRecord(date))
   }
 
@@ -205,15 +220,15 @@ export class AppStore {
     return this.getManualProjects()
   }
 
-  private load(): PersistedDataV4 {
+  private load(): PersistedDataV5 {
     try {
       if (existsSync(this.filePath)) {
         const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as PersistedDataInput
-        this.migrationRequired = parsed.version !== 4
+        this.migrationRequired = parsed.version !== 5
         return {
-          version: 4,
+          version: 5,
           settings: { ...defaultSettings, ...parsed.settings, aiProvider: 'codex-cli' },
-          records: parsed.records ?? {},
+          records: Object.fromEntries(Object.entries(parsed.records ?? {}).map(([date, record]) => [date, normalizeRecord(record)])),
           codexContextSamples: parsed.codexContextSamples ?? {},
           projectAliases: parsed.projectAliases ?? {},
           classificationRules: parsed.classificationRules ?? [],
@@ -225,7 +240,7 @@ export class AppStore {
       console.error('Failed to load app data:', error)
     }
     return {
-      version: 4,
+      version: 5,
       settings: { ...defaultSettings },
       records: {},
       codexContextSamples: {},

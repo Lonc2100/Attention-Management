@@ -12,7 +12,7 @@ describe('local persistence', () => {
     const first = new AppStore(file)
     first.updateRecord('2026-07-14', (record) => ({
       ...record,
-      outcomes: [{ id: 'one', title: '交付真实链路' }],
+      outcomes: [{ id: 'one', title: '交付真实链路', projectKeys: [] }],
       priorityOutcomeId: 'one',
       planCompletedAt: '2026-07-14T01:00:00.000Z'
     }))
@@ -47,7 +47,7 @@ describe('local persistence', () => {
     expect(store.getSettings().morningReminder).toBe('08:45')
     expect(store.getCodexContextSamples('2026-07-14')).toEqual([])
     const migratedImmediately = JSON.parse(readFileSync(file, 'utf8')) as { version: number; codexContextSamples?: unknown; projectAliases?: unknown }
-    expect(migratedImmediately.version).toBe(4)
+    expect(migratedImmediately.version).toBe(5)
     expect(migratedImmediately.codexContextSamples).toEqual({})
     expect(migratedImmediately.projectAliases).toEqual({})
 
@@ -74,7 +74,7 @@ describe('local persistence', () => {
     ])
 
     const persisted = JSON.parse(readFileSync(file, 'utf8')) as { version: number }
-    expect(persisted.version).toBe(4)
+    expect(persisted.version).toBe(5)
   })
 
   it('migrates v2 settings with safe floating-widget defaults and persists placement', () => {
@@ -157,12 +157,50 @@ describe('local persistence', () => {
     expect(reloaded.getClassificationRules().map((rule) => rule.id)).toEqual(['rule-two', 'rule-one'])
     expect(reloaded.getActivityOverrides('2026-07-15')).toHaveLength(1)
     expect(reloaded.getManualProjects()).toEqual({ 'manual:media': '自媒体创作' })
-    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(4)
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(5)
 
     reloaded.removeActivityOverride('2026-07-15', 'override-one')
     reloaded.setClassificationRuleEnabled('rule-two', false)
     reloaded.removeClassificationRule('rule-one')
     expect(reloaded.getActivityOverrides('2026-07-15')).toEqual([])
     expect(reloaded.getClassificationRules()).toEqual([expect.objectContaining({ id: 'rule-two', enabled: false })])
+  })
+
+  it('migrates v4 outcomes to project links without losing existing records or classification data', () => {
+    const directory = join(process.cwd(), 'tests', '.data')
+    const file = join(directory, 'migration-v5.json')
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(file, JSON.stringify({
+      version: 4,
+      settings: { morningReminder: '08:30' },
+      records: {
+        '2026-07-15': {
+          date: '2026-07-15',
+          outcomes: [{ id: 'priority', title: '交付成果闭环' }],
+          priorityOutcomeId: 'priority',
+          planCompletedAt: '2026-07-15T00:30:00.000Z',
+          review: null,
+          afkNotes: [],
+          aiAnalysis: null
+        }
+      },
+      codexContextSamples: {},
+      projectAliases: { 'cwd:attention': '时间效率助手' },
+      classificationRules: [{
+        id: 'rule-one', projectKey: 'cwd:attention', app: 'chrome.exe', titleMatch: 'contains',
+        titlePattern: 'ActivityWatch', enabled: true, createdAt: 1000, appliesFrom: 1000
+      }],
+      activityOverrides: {},
+      manualProjects: {}
+    }), 'utf8')
+
+    const store = new AppStore(file)
+    expect(store.getRecord('2026-07-15')).toMatchObject({
+      outcomes: [{ id: 'priority', title: '交付成果闭环', projectKeys: [] }],
+      priorityOutcomeId: 'priority'
+    })
+    expect(store.getClassificationRules()).toHaveLength(1)
+    expect(store.getProjectAliases()).toEqual({ 'cwd:attention': '时间效率助手' })
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(5)
   })
 })

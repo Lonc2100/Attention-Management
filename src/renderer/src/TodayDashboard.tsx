@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { FocusEvent, MouseEvent } from 'react'
 import type { ActivitySummary, BootstrapData, ProjectUsage, TimelineSlice } from '../../shared/contracts'
+import { buildOutcomeEvidence } from '../../shared/outcome-insights'
 
 const APP_COLORS = ['#6e8ff8', '#aa7df2', '#f09a62', '#52c7d9', '#ef6f9b']
 const PROJECT_COLORS = ['#72e1b2', '#54cfa0', '#91ebc5', '#3db789', '#a8f0d2']
@@ -94,6 +95,7 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const total = Math.max(activity.activeSeconds, 1)
+  const priorityEvidence = buildOutcomeEvidence(data.record, activity, data.projectOptions).find((item) => item.priority)
   const sliceColors = useMemo(() => new Map(activity.attentionSlices.map((slice, index) => [
     `${slice.kind}:${slice.key}`,
     colorFor(slice.kind, slice.key, index)
@@ -150,6 +152,12 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
         <article><span>Codex 注意力</span><strong>{duration(activity.codexActiveSeconds)}</strong><small>前台且非 AFK</small></article>
         <article><span>Codex 项目覆盖</span><strong>{activity.codexCoveragePercent}%</strong><small>{activity.codexUnclassifiedSeconds ? `${duration(activity.codexUnclassifiedSeconds)} 待分类` : '全部已归属'}</small></article>
       </div>
+    </section>
+
+    <section className="panel result-evidence" data-testid="priority-outcome-evidence">
+      <div><p className="eyebrow">PRIORITY OUTCOME</p><h2>{priorityEvidence ? priorityEvidence.title : '今天还没有绝对优先成果'}</h2><small>{priorityEvidence?.projectLabels.length ? `关联 ${priorityEvidence.projectLabels.join('、')}` : priorityEvidence ? '尚未关联项目，因此不会猜测成果注意力' : '先用 5 分钟确认今天最重要的结果'}</small></div>
+      <div className="result-evidence__metric"><span>可确认的项目注意力</span><strong>{priorityEvidence?.projectLabels.length ? duration(priorityEvidence.attentionSeconds) : '暂无证据'}</strong><small>只统计显式关联项目</small></div>
+      <button className="secondary" onClick={() => onView('plan')}>{priorityEvidence ? '调整关联' : '开始计划'}</button>
     </section>
 
     <section className="dashboard-top">

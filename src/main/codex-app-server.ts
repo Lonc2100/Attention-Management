@@ -130,7 +130,7 @@ export class CodexAppServerClient {
         clientInfo: {
           name: 'attention_management',
           title: 'Attention Management',
-          version: '0.4.2'
+          version: '0.5.0'
         }
       }, false)
       this.write({ method: 'initialized', params: {} })

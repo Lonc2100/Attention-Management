@@ -10,8 +10,10 @@ import type {
 } from '../../shared/contracts'
 import { TodayDashboard } from './TodayDashboard'
 import { ActivityDetailsView } from './ActivityDetailsView'
+import { InsightsView } from './InsightsView'
+import { buildOutcomeEvidence } from '../../shared/outcome-insights'
 
-type View = 'today' | 'activities' | 'plan' | 'review' | 'diagnostics' | 'settings'
+type View = 'today' | 'activities' | 'insights' | 'plan' | 'review' | 'diagnostics' | 'settings'
 
 const EMPTY_ACTIVITY: ActivitySummary = {
   connected: false,
@@ -71,6 +73,7 @@ export default function App() {
   const [view, setView] = useState<View>('today')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const e2eMode = new URLSearchParams(window.location.search).has('e2e')
 
   const load = async () => {
     try {
@@ -83,6 +86,7 @@ export default function App() {
 
   useEffect(() => {
     void load()
+    if (e2eMode) return
     const timer = setInterval(async () => {
       try {
         const activity = await window.timeEfficiency.refreshActivity()
@@ -92,7 +96,7 @@ export default function App() {
       }
     }, 15_000)
     return () => clearInterval(timer)
-  }, [])
+  }, [e2eMode])
 
   const run = async (name: string, action: () => Promise<void>) => {
     setBusy(name)
@@ -120,6 +124,7 @@ export default function App() {
         <nav>
           <Nav active={view === 'today'} onClick={() => setView('today')} label="今日概览" />
           <Nav active={view === 'activities'} onClick={() => setView('activities')} label="活动明细" />
+          <Nav active={view === 'insights'} onClick={() => setView('insights')} label="个人规律" />
           <Nav active={view === 'plan'} onClick={() => setView('plan')} label="早间计划" badge={data.reminders.morningDue ? '待完成' : undefined} />
           <Nav active={view === 'review'} onClick={() => setView('review')} label="晚间复盘" badge={data.reminders.eveningDue ? '待完成' : undefined} />
           <Nav active={view === 'diagnostics'} onClick={() => setView('diagnostics')} label="诊断" />
@@ -129,7 +134,7 @@ export default function App() {
       </aside>
       <main>
         <header className={view === 'today' ? 'app-header app-header--today' : 'app-header'}>
-          <div><p className="eyebrow">{data.date}</p><h1>{view === 'today' ? '把时间变成结果' : { activities: '活动明细', plan: '早间计划', review: '晚间复盘', diagnostics: '系统诊断', settings: '设置' }[view]}</h1></div>
+          <div><p className="eyebrow">{data.date}</p><h1>{view === 'today' ? '把时间变成结果' : { activities: '活动明细', insights: '个人规律', plan: '早间计划', review: '晚间复盘', diagnostics: '系统诊断', settings: '设置' }[view]}</h1></div>
           {view === 'today' && <div className={`header-focus focus-${data.activity.focus.status}`} data-testid="focus-strip">
             <span className="header-focus__dot" />
             <div className="header-focus__copy"><small>{data.activity.focus.status === 'confirmed' ? '当前项目 · 自动识别' : '当前上下文'}</small><strong title={data.activity.focus.label}>{data.activity.focus.label}</strong></div>
@@ -142,6 +147,7 @@ export default function App() {
         {error && <div className="error-banner"><strong>操作未完成</strong>{error}<button onClick={() => setError('')}>×</button></div>}
         {view === 'today' && <Today data={data} busy={busy} setView={setView} run={run} setActivity={setActivity} onReload={load} />}
         {view === 'activities' && <ActivityDetailsView initialDate={data.date} onActivity={setActivity} />}
+        {view === 'insights' && <InsightsView />}
         {view === 'plan' && <Plan data={data} busy={busy} run={run} onReload={load} />}
         {view === 'review' && <ReviewView data={data} busy={busy} run={run} onReload={load} />}
         {view === 'diagnostics' && <DiagnosticsView initial={data.diagnostics} busy={busy} run={run} />}
@@ -172,10 +178,21 @@ function Plan({ data, busy, run, onReload }: { data: BootstrapData; busy: string
   const [titles, setTitles] = useState([existing[0]?.title ?? '', existing[1]?.title ?? '', existing[2]?.title ?? ''])
   const ids = useMemo(() => [existing[0]?.id ?? crypto.randomUUID(), existing[1]?.id ?? crypto.randomUUID(), existing[2]?.id ?? crypto.randomUUID()], [])
   const [priority, setPriority] = useState(data.record.priorityOutcomeId ?? ids[0])
+  const [projectKeys, setProjectKeys] = useState([
+    existing[0]?.projectKeys ?? [], existing[1]?.projectKeys ?? [], existing[2]?.projectKeys ?? []
+  ])
+  const toggleProject = (index: number, key: string) => {
+    const next = projectKeys.map((keys) => [...keys])
+    next[index] = next[index].includes(key) ? next[index].filter((item) => item !== key) : [...next[index], key]
+    setProjectKeys(next)
+  }
   return <section className="panel form-panel">
-    <p className="lead">不是列待办清单。只写今天结束时必须看得见的 1–3 个成果，并选出唯一不可牺牲的一项。</p>
-    <div className="form-stack">{titles.map((title, index) => <label key={ids[index]} className="outcome-input"><input type="radio" name="priority" checked={priority === ids[index]} onChange={() => setPriority(ids[index])} disabled={!title.trim()} /><span>{index + 1}</span><input value={title} maxLength={100} placeholder={index === 0 ? '绝对优先：今天完成什么才算没有白过？' : '另一个重要成果（可选）'} onChange={(event) => { const next = [...titles]; next[index] = event.target.value; setTitles(next); if (index === 0 && !priority) setPriority(ids[0]) }} /></label>)}</div>
-    <div className="form-footer"><small>选中的圆点 = 绝对优先项</small><button className="primary" disabled={busy === 'plan'} onClick={() => run('plan', async () => { const outcomes = titles.map((title, i) => ({ id: ids[i], title })).filter((item) => item.title.trim()); await window.timeEfficiency.savePlan({ outcomes, priorityOutcomeId: priority }); await onReload() })}>{busy === 'plan' ? '保存中…' : data.record.planCompletedAt ? '更新今日计划' : '确认，开始今天'}</button></div>
+    <p className="lead">只写今天结束时必须看得见的 1–3 个成果。关联项目后，系统才能用真实项目注意力为成果提供证据。</p>
+    <div className="form-stack plan-outcomes">{titles.map((title, index) => <div key={ids[index]} className="plan-outcome-card">
+      <label className="outcome-input"><input type="radio" name="priority" checked={priority === ids[index]} onChange={() => setPriority(ids[index])} disabled={!title.trim()} /><span>{index + 1}</span><input value={title} maxLength={100} placeholder={index === 0 ? '绝对优先：今天完成什么才算没有白过？' : '另一个重要成果（可选）'} onChange={(event) => { const next = [...titles]; next[index] = event.target.value; setTitles(next); if (index === 0 && !priority) setPriority(ids[0]) }} /></label>
+      {title.trim() && <div className="project-picker"><small>关联项目（可多选）</small><div>{data.projectOptions.length ? data.projectOptions.map((project) => <label key={project.key} className={projectKeys[index].includes(project.key) ? 'selected' : ''}><input type="checkbox" checked={projectKeys[index].includes(project.key)} onChange={() => toggleProject(index, project.key)} /><span>{project.label}</span></label>) : <em>还没有可关联项目；先在 Codex 中打开项目或到活动明细里完成一次归类。</em>}</div></div>}
+    </div>)}</div>
+    <div className="form-footer"><small>不关联也可以保存，但成果注意力会明确显示“暂无可量化证据”。</small><button className="primary" disabled={busy === 'plan'} onClick={() => run('plan', async () => { const outcomes = titles.map((title, i) => ({ id: ids[i], title, projectKeys: projectKeys[i] })).filter((item) => item.title.trim()); await window.timeEfficiency.savePlan({ outcomes, priorityOutcomeId: priority }); await onReload() })}>{busy === 'plan' ? '保存中…' : data.record.planCompletedAt ? '更新今日计划' : '确认，开始今天'}</button></div>
   </section>
 }
 
@@ -187,6 +204,8 @@ function ReviewView({ data, busy, run, onReload }: { data: BootstrapData; busy: 
   const [ai, setAi] = useState(data.record.aiAnalysis ?? '')
   const [editingAfk, setEditingAfk] = useState<AfkPeriod | null>(null)
   const [afkNote, setAfkNote] = useState('')
+  const evidence = buildOutcomeEvidence(data.record, data.activity, data.projectOptions)
+  const evidenceByOutcome = new Map(evidence.map((item) => [item.outcomeId, item]))
   const beginAfkEdit = (period: AfkPeriod) => { setEditingAfk(period); setAfkNote(period.note ?? '') }
   const saveAfk = () => void run('afk', async () => {
     if (!editingAfk) return
@@ -198,7 +217,7 @@ function ReviewView({ data, busy, run, onReload }: { data: BootstrapData; busy: 
     <section className="panel form-panel">
       <div className="panel-head"><div><p className="eyebrow">5 MINUTES</p><h2>结果先于时长</h2></div></div>
       {!data.record.outcomes.length && <div className="warning">今天没有早间计划。你仍可以复盘，但结果判断会缺少基准。</div>}
-      <div className="review-outcomes">{data.record.outcomes.map((outcome) => <label key={outcome.id}><strong>{outcome.id === data.record.priorityOutcomeId ? '★ ' : ''}{outcome.title}</strong><select value={statuses[outcome.id] ?? 'pending'} onChange={(event) => setStatuses({ ...statuses, [outcome.id]: event.target.value as OutcomeStatus })}>{(['pending', 'done', 'partial', 'dropped'] as OutcomeStatus[]).map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}</select></label>)}</div>
+      <div className="review-outcomes">{data.record.outcomes.map((outcome) => { const item = evidenceByOutcome.get(outcome.id); return <label key={outcome.id}><span><strong>{outcome.id === data.record.priorityOutcomeId ? '★ ' : ''}{outcome.title}</strong><small>{item?.projectLabels.length ? `${item.projectLabels.join('、')} · ${duration(item.attentionSeconds)} 项目注意力` : '未关联项目 · 暂无可量化注意力证据'}</small></span><select value={statuses[outcome.id] ?? 'pending'} onChange={(event) => setStatuses({ ...statuses, [outcome.id]: event.target.value as OutcomeStatus })}>{(['pending', 'done', 'partial', 'dropped'] as OutcomeStatus[]).map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}</select></label> })}</div>
       <label className="field"><span>主观效率（1–5）</span><input type="range" min="1" max="5" value={score} onChange={(event) => setScore(Number(event.target.value))} /><strong>{score}</strong></label>
       <label className="field block"><span>今天真正推进了什么？</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="用结果说话，也可以记录阻塞。" /></label>
       <label className="field block"><span>明天首先做什么？</span><input value={tomorrow} onChange={(event) => setTomorrow(event.target.value)} placeholder="先留下一个方向，明早再正式确认。" /></label>

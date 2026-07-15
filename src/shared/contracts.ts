@@ -3,6 +3,7 @@ export type OutcomeStatus = 'pending' | 'done' | 'partial' | 'dropped'
 export interface Outcome {
   id: string
   title: string
+  projectKeys: string[]
 }
 
 export interface Review {
@@ -188,6 +189,45 @@ export interface ProjectOption {
   source: ProjectIdentitySource
 }
 
+export interface OutcomeEvidence {
+  outcomeId: string
+  title: string
+  priority: boolean
+  status: OutcomeStatus
+  projectKeys: string[]
+  projectLabels: string[]
+  attentionSeconds: number
+}
+
+export interface InsightDay {
+  date: string
+  activeSeconds: number
+  priorityAttentionSeconds: number
+  priorityStatus: OutcomeStatus | null
+  subjectiveScore: number | null
+  contextSwitches: number
+  connected: boolean
+}
+
+export interface InsightHour {
+  hour: number
+  seconds: number
+  qualifyingDays: number
+}
+
+export interface PersonalInsights {
+  requestedDays: 7 | 14 | 30
+  rangeStart: string | null
+  rangeEnd: string | null
+  reviewedDays: number
+  connectedDays: number
+  quality: 'insufficient' | 'ready' | 'partial'
+  candidateHours: InsightHour[]
+  days: InsightDay[]
+  observations: string[]
+  generatedAt: string
+}
+
 export interface ActivityRule {
   id: string
   projectKey: string
@@ -265,6 +305,7 @@ export interface BootstrapData {
   activity: ActivitySummary
   reminders: ReminderState
   diagnostics: Diagnostics
+  projectOptions: ProjectOption[]
 }
 
 export interface PlanInput {
@@ -329,6 +370,7 @@ export interface TimeEfficiencyApi {
   setActivityRuleEnabled(input: ActivityRuleMutationInput & { enabled: boolean }): Promise<ActivityDetails>
   moveActivityRule(input: MoveActivityRuleInput): Promise<ActivityDetails>
   removeActivityRule(input: ActivityRuleMutationInput): Promise<ActivityDetails>
+  getInsights(days: 7 | 14 | 30): Promise<PersonalInsights>
   showWindow(): Promise<void>
   showWidget(): Promise<void>
   hideWidget(): Promise<void>
@@ -352,6 +394,7 @@ export const IPC = {
   setActivityRuleEnabled: 'activity:rule-enabled',
   moveActivityRule: 'activity:rule-move',
   removeActivityRule: 'activity:rule-remove',
+  getInsights: 'insights:get',
   showWindow: 'window:show',
   showWidget: 'widget:show',
   hideWidget: 'widget:hide',

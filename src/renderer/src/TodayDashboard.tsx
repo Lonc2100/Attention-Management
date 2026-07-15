@@ -56,7 +56,7 @@ function categoryKey(slice: Pick<TimelineSlice, 'kind' | 'key'>): string {
 
 function kindLabel(kind: AttentionKind): string {
   return {
-    project: 'Codex 项目',
+    project: '项目',
     'codex-unclassified': 'Codex · 待分类',
     application: '应用',
     afk: '离开电脑'
@@ -141,7 +141,7 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
       <div className="compact-metrics">
         <article><span>电脑活跃</span><strong>{duration(activity.activeSeconds)}</strong><small>排除 {duration(activity.afkSeconds)} AFK</small></article>
         <article><span>Codex 注意力</span><strong>{duration(activity.codexActiveSeconds)}</strong><small>前台且非 AFK</small></article>
-        <article><span>项目覆盖</span><strong>{activity.codexCoveragePercent}%</strong><small>{activity.codexUnclassifiedSeconds ? `${duration(activity.codexUnclassifiedSeconds)} 待分类` : '全部已归属'}</small></article>
+        <article><span>Codex 项目覆盖</span><strong>{activity.codexCoveragePercent}%</strong><small>{activity.codexUnclassifiedSeconds ? `${duration(activity.codexUnclassifiedSeconds)} 待分类` : '全部已归属'}</small></article>
       </div>
     </section>
 
@@ -156,7 +156,7 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
           <div className="attention-legend">
             {activity.attentionSlices.length ? activity.attentionSlices.slice(0, 8).map((slice) => <button key={categoryKey(slice)} className={activeKey && activeKey !== categoryKey(slice) ? 'is-dimmed' : activeKey === categoryKey(slice) ? 'is-active' : ''} data-category-key={categoryKey(slice)} data-linked-active={activeKey === categoryKey(slice) ? 'true' : 'false'} onMouseEnter={(event) => showFromPointer(slice, event)} onMouseMove={(event) => showFromPointer(slice, event)} onMouseLeave={clearHover} onFocus={(event) => showFromFocus(slice, event)} onBlur={clearHover}>
               <i style={{ background: sliceColors.get(categoryKey(slice)) }} />
-              <span><strong>{slice.label}</strong><small>{slice.kind === 'project' ? 'Codex 项目' : slice.kind === 'codex-unclassified' ? 'Codex · 待分类' : '应用'}</small></span>
+              <span><strong>{slice.label}</strong><small>{slice.kind === 'project' ? '项目' : slice.kind === 'codex-unclassified' ? 'Codex · 待分类' : '应用'}</small></span>
               <em>{duration(slice.seconds)}<small>{Math.round((slice.seconds / total) * 100)}%</small></em>
             </button>) : <div className="dashboard-empty">正在等待第一批窗口事件。</div>}
           </div>
@@ -168,13 +168,13 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
 
     <section className="dashboard-details">
       <article className="panel detail-panel">
-        <div className="panel-head compact-head"><div><p className="eyebrow">CODEX PROJECTS</p><h2>项目明细</h2></div><span className="coverage">合计 = Codex {duration(activity.codexActiveSeconds)}</span></div>
+        <div className="panel-head compact-head"><div><p className="eyebrow">PROJECT ATTENTION</p><h2>项目明细</h2></div><span className="coverage">已归入项目 {duration(activity.projects.filter((project) => project.classified).reduce((sum, project) => sum + project.seconds, 0))}</span></div>
         {activity.projects.length ? <div className="detail-list">{activity.projects.map((project, index) => <div key={project.key} className={project.classified ? '' : 'pending'}>
           <i style={{ background: project.classified ? PROJECT_COLORS[index % PROJECT_COLORS.length] : PENDING_COLOR }} />
-          <span><strong>{project.label}</strong><small>{project.classified ? `${project.threadCount} 个对话 · ${project.latestThreadName ?? '未命名对话'}` : '没有可信上下文，因此没有猜测归属'}</small></span>
+          <span><strong>{project.label}</strong><small>{project.classified ? (project.threadCount ? `${project.threadCount} 个对话 · ${project.latestThreadName ?? '未命名对话'}` : '由人工纠错或归类规则确认') : '没有可信上下文，因此没有猜测归属'}</small></span>
           <em>{duration(project.seconds)}</em>
-          {project.classified && <button className="text-button" onClick={() => startEdit(project)}>更名</button>}
-        </div>)}</div> : <p className="dashboard-empty">还没有 Codex 前台注意力。</p>}
+          {project.classified && project.identitySource !== 'manual' && <button className="text-button" onClick={() => startEdit(project)}>更名</button>}
+        </div>)}</div> : <p className="dashboard-empty">还没有归入项目的注意力。</p>}
         {editing && <div className="inline-editor"><label><span>只更改显示名称，不会合并项目</span><input autoFocus value={alias} maxLength={60} onChange={(event) => setAlias(event.target.value)} /></label><div><button className="secondary" onClick={() => setEditing(null)}>取消</button><button className="primary" disabled={!alias.trim() || busy === 'project-alias'} onClick={() => void saveAlias()}>保存</button></div></div>}
       </article>
       <article className="panel detail-panel">
@@ -254,11 +254,11 @@ function Timeline({ activity, colors, activeKey, onPointer, onFocus, onLeave }: 
         const key = categoryKey(slice)
         const options = { start: slice.start, end: slice.end, denominator: range / 1000, percentLabel: '记录区间占比' }
         return <button key={slice.id} className={`timeline-segment ${slice.kind} ${activeKey && activeKey !== key ? 'is-dimmed' : ''} ${activeKey === key ? 'is-active' : ''}`} style={{ left: `${left}%`, width: `${Math.max(width, .35)}%`, background: color }} data-category-key={key} data-linked-active={activeKey === key ? 'true' : 'false'} aria-label={`${clock(slice.start)}到${clock(slice.end)}，${slice.label}，${duration(slice.seconds)}`} onMouseEnter={(event) => onPointer(slice, event, options)} onMouseMove={(event) => onPointer(slice, event, options)} onMouseLeave={onLeave} onFocus={(event) => onFocus(slice, event, options)} onBlur={onLeave}>
-          {width > 8 && <span>{slice.kind === 'project' ? 'C · ' : ''}{slice.label}</span>}
+          {width > 8 && <span>{slice.kind === 'project' && slice.app?.toLocaleLowerCase().includes('codex') ? 'C · ' : ''}{slice.label}</span>}
         </button>
       })}
     </div>
     <div className="timeline-ticks">{ticks.map((tick) => <span key={tick}>{clock(tick)}</span>)}</div>
-    <div className="timeline-events">{ordered.slice(-4).map((slice, index) => <div key={`${slice.id}:event`}><i style={{ background: slice.kind === 'afk' ? AFK_COLOR : colors.get(categoryKey(slice)) ?? colorFor(slice.kind, slice.key, index) }} /><span>{clock(slice.start)}–{clock(slice.end)}</span><strong title={slice.label}>{slice.kind === 'project' ? `Codex · ${slice.label}` : slice.label}</strong><em>{compactDuration(slice.seconds)}</em></div>)}</div>
+    <div className="timeline-events">{ordered.slice(-4).map((slice, index) => <div key={`${slice.id}:event`}><i style={{ background: slice.kind === 'afk' ? AFK_COLOR : colors.get(categoryKey(slice)) ?? colorFor(slice.kind, slice.key, index) }} /><span>{clock(slice.start)}–{clock(slice.end)}</span><strong title={slice.label}>{slice.kind === 'project' && slice.app ? `${slice.app} · ${slice.label}` : slice.label}</strong><em>{compactDuration(slice.seconds)}</em></div>)}</div>
   </section>
 }

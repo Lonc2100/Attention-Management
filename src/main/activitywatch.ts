@@ -3,13 +3,18 @@ import { basename, dirname, join } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import type {
   ActivityEvent,
+  ActivityDetails,
+  ActivityOverride,
+  ActivityRule,
   ActivitySummary,
   AfkNote,
   CodexContextSample,
   CodexContextStatus
 } from '../shared/contracts'
 import { aggregateActivity, disconnectedSummary } from './aggregate'
+import { classifyActivityDay } from './classification'
 import { dayBounds } from './date'
+import { identityForSample } from './project-attribution'
 
 interface Bucket {
   id: string
@@ -103,7 +108,10 @@ export class ActivityWatchManager {
     notes: AfkNote[],
     contextSamples: CodexContextSample[] = [],
     projectAliases: Record<string, string> = {},
-    codexContext?: CodexContextStatus
+    codexContext?: CodexContextStatus,
+    rules: ActivityRule[] = [],
+    overrides: ActivityOverride[] = [],
+    manualProjects: Record<string, string> = {}
   ): Promise<ActivitySummary> {
     try {
       await waitForServer(1500)
@@ -122,10 +130,82 @@ export class ActivityWatchManager {
         { window: windowBucket?.id ?? null, afk: afkBucket?.id ?? null },
         contextSamples,
         projectAliases,
-        codexContext
+        codexContext,
+        Date.now(),
+        rules,
+        overrides,
+        manualProjects
       )
     } catch (error) {
       return disconnectedSummary(this.tracking, error)
+    }
+  }
+
+  async getDetails(
+    date: string,
+    contextSamples: CodexContextSample[] = [],
+    projectAliases: Record<string, string> = {},
+    rules: ActivityRule[] = [],
+    overrides: ActivityOverride[] = [],
+    manualProjects: Record<string, string> = {}
+  ): Promise<ActivityDetails> {
+    try {
+      await waitForServer(1500)
+      const buckets = await this.getBuckets()
+      const windowBucket = this.newestBucket(buckets, 'currentwindow')
+      const afkBucket = this.newestBucket(buckets, 'afkstatus')
+      const [windowEvents, afkEvents] = await Promise.all([
+        windowBucket ? this.getEvents(windowBucket.id, date) : Promise.resolve([]),
+        afkBucket ? this.getEvents(afkBucket.id, date) : Promise.resolve([])
+      ])
+      const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects)
+      const projectOptions = new Map<string, { key: string; label: string; source: 'folder' | 'thread' | 'fallback' | 'alias' | 'manual' }>()
+      for (const sample of contextSamples) {
+        const identity = identityForSample(sample, projectAliases)
+        projectOptions.set(identity.key, { key: identity.key, label: identity.label, source: identity.source })
+      }
+      for (const [key, label] of Object.entries(manualProjects)) projectOptions.set(key, { key, label, source: 'manual' })
+      for (const rule of rules) {
+        if (projectOptions.has(rule.projectKey)) continue
+        const label = projectAliases[rule.projectKey]?.trim()
+        if (label) projectOptions.set(rule.projectKey, { key: rule.projectKey, label, source: 'alias' })
+      }
+      const rangeStart = classified.entries[0]?.start ?? null
+      const rangeEnd = classified.entries[classified.entries.length - 1]?.end ?? null
+      const partial = !afkBucket
+      return {
+        date,
+        connected: true,
+        tracking: this.tracking,
+        rangeStart,
+        rangeEnd,
+        activeSeconds: classified.activeSeconds,
+        afkSeconds: classified.afkSeconds,
+        entries: classified.entries,
+        projectOptions: [...projectOptions.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN')),
+        rules,
+        partial,
+        warning: partial ? 'AFK 数据暂不可用，以下活动可能包含离开电脑的时间。' : null,
+        error: null,
+        updatedAt: new Date().toISOString()
+      }
+    } catch (error) {
+      return {
+        date,
+        connected: false,
+        tracking: this.tracking,
+        rangeStart: null,
+        rangeEnd: null,
+        activeSeconds: 0,
+        afkSeconds: 0,
+        entries: [],
+        projectOptions: [],
+        rules,
+        partial: false,
+        warning: null,
+        error: error instanceof Error ? error.message : String(error),
+        updatedAt: new Date().toISOString()
+      }
     }
   }
 

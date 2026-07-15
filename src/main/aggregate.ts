@@ -1,5 +1,7 @@
 import type {
   ActivityEvent,
+  ActivityOverride,
+  ActivityRule,
   ActivitySummary,
   AttentionSlice,
   AfkNote,
@@ -8,21 +10,14 @@ import type {
   CodexContextSample,
   CodexContextStatus,
   FocusSnapshot,
+  ProjectIdentitySource,
   ProjectUsage,
   TimelineSlice
 } from '../shared/contracts'
+import { classifyActivityDay, type ClassifiedSegment } from './classification'
 import { identityForSample, isCodexWindow } from './project-attribution'
 
-type TimeInterval = { start: number; end: number }
-
-type ProjectAccumulator = {
-  usage: ProjectUsage
-  threadIds: Set<string>
-  latestDetectedAt: number
-}
-
-type TimelineDraft = Omit<TimelineSlice, 'id' | 'start' | 'end' | 'seconds'> & TimeInterval
-type ProjectLeaf = Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'app' | 'classified'>
+type TimelineDraft = Omit<TimelineSlice, 'id' | 'start' | 'end' | 'seconds'> & { start: number; end: number }
 
 const EMPTY_CODEX_CONTEXT: CodexContextStatus = {
   available: false,
@@ -34,137 +29,9 @@ const EMPTY_CODEX_CONTEXT: CodexContextStatus = {
   error: null
 }
 
-function mergeIntervals(intervals: TimeInterval[]): TimeInterval[] {
-  const sorted = intervals
-    .filter((item) => item.end > item.start)
-    .sort((a, b) => a.start - b.start)
-  const merged: TimeInterval[] = []
-  for (const interval of sorted) {
-    const last = merged[merged.length - 1]
-    if (!last || interval.start > last.end) {
-      merged.push({ ...interval })
-      continue
-    }
-    last.end = Math.max(last.end, interval.end)
-  }
-  return merged
-}
-
-function subtractIntervals(start: number, end: number, excluded: TimeInterval[]): TimeInterval[] {
-  let cursor = start
-  const result: TimeInterval[] = []
-  for (const interval of excluded) {
-    if (interval.end <= cursor) continue
-    if (interval.start >= end) break
-    if (interval.start > cursor) result.push({ start: cursor, end: Math.min(interval.start, end) })
-    cursor = Math.max(cursor, interval.end)
-    if (cursor >= end) break
-  }
-  if (cursor < end) result.push({ start: cursor, end })
-  return result
-}
-
-function seconds(intervals: TimeInterval[]): number {
-  return intervals.reduce((total, interval) => total + (interval.end - interval.start) / 1000, 0)
-}
-
-function addProjectSeconds(
-  projects: Map<string, ProjectAccumulator>,
-  sample: CodexContextSample | null,
-  durationSeconds: number,
-  aliases: Record<string, string>
-): ProjectLeaf {
-  if (durationSeconds <= 0) {
-    if (!sample) return { kind: 'codex-unclassified', key: 'unclassified', label: '待分类', app: 'Codex', classified: false }
-    const identity = identityForSample(sample, aliases)
-    return { kind: 'project', key: identity.key, label: identity.label, app: 'Codex', classified: true }
-  }
-  if (!sample) {
-    const existing = projects.get('unclassified')
-    if (existing) {
-      existing.usage.seconds += durationSeconds
-      return { kind: 'codex-unclassified', key: 'unclassified', label: '待分类', app: 'Codex', classified: false }
-    }
-    projects.set('unclassified', {
-      usage: {
-        key: 'unclassified',
-        label: '待分类',
-        seconds: durationSeconds,
-        classified: false,
-        identitySource: 'unclassified',
-        threadCount: 0,
-        latestThreadName: null,
-        cwd: null
-      },
-      threadIds: new Set(),
-      latestDetectedAt: 0
-    })
-    return { kind: 'codex-unclassified', key: 'unclassified', label: '待分类', app: 'Codex', classified: false }
-  }
-
-  const identity = identityForSample(sample, aliases)
-  const existing = projects.get(identity.key)
-  if (existing) {
-    existing.usage.seconds += durationSeconds
-    existing.threadIds.add(sample.threadId)
-    existing.usage.threadCount = existing.threadIds.size
-    if (sample.detectedAt >= existing.latestDetectedAt) {
-      existing.latestDetectedAt = sample.detectedAt
-      existing.usage.latestThreadName = sample.threadName
-      existing.usage.cwd = sample.cwd
-    }
-    return { kind: 'project', key: identity.key, label: identity.label, app: 'Codex', classified: true }
-  }
-
-  projects.set(identity.key, {
-    usage: {
-      key: identity.key,
-      label: identity.label,
-      seconds: durationSeconds,
-      classified: true,
-      identitySource: identity.source,
-      threadCount: 1,
-      latestThreadName: sample.threadName,
-      cwd: sample.cwd
-    },
-    threadIds: new Set([sample.threadId]),
-    latestDetectedAt: sample.detectedAt
-  })
-  return { kind: 'project', key: identity.key, label: identity.label, app: 'Codex', classified: true }
-}
-
-function attributeInterval(
-  interval: TimeInterval,
-  samples: CodexContextSample[],
-  projects: Map<string, ProjectAccumulator>,
-  aliases: Record<string, string>,
-  timeline: TimelineDraft[]
-): void {
-  let current: CodexContextSample | null = null
-  for (const sample of samples) {
-    if (sample.detectedAt <= interval.start) current = sample
-    else break
-  }
-
-  let cursor = interval.start
-  for (const transition of samples) {
-    if (transition.detectedAt <= interval.start) continue
-    if (transition.detectedAt >= interval.end) break
-    const leaf = addProjectSeconds(projects, current, (transition.detectedAt - cursor) / 1000, aliases)
-    timeline.push({ start: cursor, end: transition.detectedAt, ...leaf })
-    current = transition
-    cursor = transition.detectedAt
-  }
-  const leaf = addProjectSeconds(projects, current, (interval.end - cursor) / 1000, aliases)
-  timeline.push({ start: cursor, end: interval.end, ...leaf })
-}
-
 function mergeTimeline(drafts: TimelineDraft[]): TimelineSlice[] {
-  const sorted = drafts
-    .filter((slice) => slice.end > slice.start)
-    .sort((a, b) => a.start - b.start || a.end - b.end)
   const merged: TimelineDraft[] = []
-  for (const slice of sorted) {
+  for (const slice of drafts.filter((item) => item.end > item.start).sort((a, b) => a.start - b.start || a.end - b.end)) {
     const last = merged[merged.length - 1]
     const sameLeaf = last
       && last.kind === slice.kind
@@ -172,11 +39,8 @@ function mergeTimeline(drafts: TimelineDraft[]): TimelineSlice[] {
       && last.app === slice.app
       && slice.start >= last.end
       && slice.start - last.end <= 1
-    if (sameLeaf) {
-      last.end = Math.max(last.end, slice.end)
-    } else {
-      merged.push({ ...slice })
-    }
+    if (sameLeaf) last.end = Math.max(last.end, slice.end)
+    else merged.push({ ...slice })
   }
   return merged.map((slice) => ({
     id: `${slice.kind}:${slice.key}:${slice.start}:${slice.end}`,
@@ -210,6 +74,102 @@ function attentionFromTimeline(timeline: TimelineSlice[]): AttentionSlice[] {
   return [...leaves.values()].sort((a, b) => b.seconds - a.seconds)
 }
 
+function timelineFromSegments(segments: ClassifiedSegment[]): TimelineSlice[] {
+  return mergeTimeline(segments.map((segment) => {
+    if (segment.attribution === 'afk') {
+      return { start: segment.startMs, end: segment.endMs, kind: 'afk', key: 'afk', label: '离开电脑', app: null, classified: false }
+    }
+    if (segment.projectKey) {
+      return { start: segment.startMs, end: segment.endMs, kind: 'project', key: segment.projectKey, label: segment.projectLabel, app: segment.app, classified: true }
+    }
+    if (segment.attribution === 'unclassified') {
+      return { start: segment.startMs, end: segment.endMs, kind: 'codex-unclassified', key: 'unclassified', label: '待分类', app: 'Codex', classified: false }
+    }
+    return {
+      start: segment.startMs,
+      end: segment.endMs,
+      kind: 'application',
+      key: `app:${segment.app.toLocaleLowerCase()}`,
+      label: segment.app,
+      app: segment.app,
+      classified: true
+    }
+  }))
+}
+
+function appUsageFromSegments(segments: ClassifiedSegment[]): AppUsage[] {
+  const apps = new Map<string, { seconds: number; titles: Map<string, number> }>()
+  for (const segment of segments) {
+    if (segment.attribution === 'afk') continue
+    const entry = apps.get(segment.app) ?? { seconds: 0, titles: new Map<string, number>() }
+    entry.seconds += segment.seconds
+    entry.titles.set(segment.title, (entry.titles.get(segment.title) ?? 0) + segment.seconds)
+    apps.set(segment.app, entry)
+  }
+  return [...apps.entries()].map(([app, value]) => ({
+    app,
+    seconds: value.seconds,
+    topTitles: [...value.titles.entries()]
+      .map(([title, titleSeconds]) => ({ title, seconds: titleSeconds }))
+      .sort((a, b) => b.seconds - a.seconds)
+      .slice(0, 3)
+  })).sort((a, b) => b.seconds - a.seconds)
+}
+
+function projectSource(
+  key: string,
+  samples: CodexContextSample[],
+  aliases: Record<string, string>,
+  manualProjects: Record<string, string>
+): ProjectIdentitySource {
+  if (manualProjects[key] || key.startsWith('manual:')) return 'manual'
+  const sample = [...samples].reverse().find((item) => item.projectKey === key)
+  if (!sample) return aliases[key] ? 'alias' : 'manual'
+  return identityForSample(sample, aliases).source
+}
+
+function projectUsageFromSegments(
+  segments: ClassifiedSegment[],
+  samples: CodexContextSample[],
+  aliases: Record<string, string>,
+  manualProjects: Record<string, string>
+): ProjectUsage[] {
+  const result = new Map<string, ProjectUsage & { threadIds: Set<string>; latestDetectedAt: number }>()
+  for (const segment of segments) {
+    const key = segment.projectKey ?? (segment.attribution === 'unclassified' ? 'unclassified' : null)
+    if (!key) continue
+    const existing = result.get(key)
+    if (existing) {
+      existing.seconds += segment.seconds
+      if (segment.sample) {
+        existing.threadIds.add(segment.sample.threadId)
+        existing.threadCount = existing.threadIds.size
+        if (segment.sample.detectedAt >= existing.latestDetectedAt) {
+          existing.latestDetectedAt = segment.sample.detectedAt
+          existing.latestThreadName = segment.sample.threadName
+          existing.cwd = segment.sample.cwd
+        }
+      }
+      continue
+    }
+    const sample = segment.sample
+    result.set(key, {
+      key,
+      label: key === 'unclassified' ? '待分类' : segment.projectLabel,
+      seconds: segment.seconds,
+      classified: key !== 'unclassified',
+      identitySource: key === 'unclassified' ? 'unclassified' : projectSource(key, samples, aliases, manualProjects),
+      threadCount: sample ? 1 : 0,
+      latestThreadName: sample?.threadName ?? null,
+      cwd: sample?.cwd ?? null,
+      threadIds: new Set(sample ? [sample.threadId] : []),
+      latestDetectedAt: sample?.detectedAt ?? 0
+    })
+  }
+  return [...result.values()].map(({ threadIds: _threadIds, latestDetectedAt: _latestDetectedAt, ...usage }) => usage)
+    .sort((a, b) => b.seconds - a.seconds)
+}
+
 function focusFromActivity(
   tracking: boolean,
   timeline: TimelineSlice[],
@@ -217,60 +177,44 @@ function focusFromActivity(
   codexContext: CodexContextStatus,
   nowMs: number
 ): FocusSnapshot {
-  if (!tracking) {
-    return { status: 'paused', label: '记录已暂停', projectKey: null, app: null, startedAt: null, continuousSeconds: 0, projectTodaySeconds: 0 }
-  }
+  if (!tracking) return { status: 'paused', label: '记录已暂停', projectKey: null, app: null, startedAt: null, continuousSeconds: 0, projectTodaySeconds: 0 }
   const containingAfk = [...timeline].reverse().find((slice) => slice.kind === 'afk'
-    && new Date(slice.start).getTime() <= nowMs
-    && new Date(slice.end).getTime() >= nowMs)
-  if (containingAfk) {
+    && Date.parse(slice.start) <= nowMs && Date.parse(slice.end) >= nowMs)
+  if (containingAfk) return {
+    status: 'afk', label: '已离开电脑', projectKey: null, app: null, startedAt: containingAfk.start,
+    continuousSeconds: Math.max(0, (nowMs - Date.parse(containingAfk.start)) / 1000), projectTodaySeconds: 0
+  }
+
+  const latest = [...timeline].filter((slice) => slice.kind !== 'afk').sort((a, b) => b.end.localeCompare(a.end))[0]
+  if (latest && Date.parse(latest.end) >= nowMs - 60_000 && latest.kind === 'project') {
     return {
-      status: 'afk', label: '已离开电脑', projectKey: null, app: null,
-      startedAt: containingAfk.start,
-      continuousSeconds: Math.max(0, (nowMs - new Date(containingAfk.start).getTime()) / 1000),
-      projectTodaySeconds: 0
+      status: 'confirmed', label: latest.label, projectKey: latest.key, app: latest.app,
+      startedAt: latest.start, continuousSeconds: Math.max(0, (nowMs - Date.parse(latest.start)) / 1000),
+      projectTodaySeconds: attention.find((slice) => slice.kind === 'project' && slice.key === latest.key)?.seconds ?? 0
     }
   }
   if (codexContext.foreground && codexContext.active) {
     const current = codexContext.current
     const key = current?.projectKey ?? 'unclassified'
-    const status = current ? 'confirmed' : 'unclassified'
-    const matching = [...timeline].reverse().find((slice) => slice.key === key && new Date(slice.end).getTime() >= nowMs - 60_000)
+    const matching = [...timeline].reverse().find((slice) => slice.key === key && Date.parse(slice.end) >= nowMs - 60_000)
     const startedAt = matching?.start ?? (current ? new Date(current.detectedAt).toISOString() : null)
     return {
-      status,
-      label: current?.projectLabel ?? 'Codex · 待分类',
-      projectKey: current?.projectKey ?? null,
-      app: 'Codex',
-      startedAt,
-      continuousSeconds: startedAt ? Math.max(0, (nowMs - new Date(startedAt).getTime()) / 1000) : 0,
+      status: current ? 'confirmed' : 'unclassified', label: current?.projectLabel ?? 'Codex · 待分类',
+      projectKey: current?.projectKey ?? null, app: 'Codex', startedAt,
+      continuousSeconds: startedAt ? Math.max(0, (nowMs - Date.parse(startedAt)) / 1000) : 0,
       projectTodaySeconds: attention.find((slice) => slice.key === key)?.seconds ?? 0
     }
   }
-  if (codexContext.current) {
-    return {
-      status: 'recent',
-      label: codexContext.current.projectLabel,
-      projectKey: codexContext.current.projectKey,
-      app: 'Codex',
-      startedAt: null,
-      continuousSeconds: 0,
-      projectTodaySeconds: attention.find((slice) => slice.key === codexContext.current?.projectKey)?.seconds ?? 0
-    }
+  if (codexContext.current) return {
+    status: 'recent', label: codexContext.current.projectLabel, projectKey: codexContext.current.projectKey,
+    app: 'Codex', startedAt: null, continuousSeconds: 0,
+    projectTodaySeconds: attention.find((slice) => slice.key === codexContext.current?.projectKey)?.seconds ?? 0
   }
-  const latest = [...timeline]
-    .filter((slice) => slice.kind !== 'afk')
-    .sort((a, b) => b.end.localeCompare(a.end))[0]
-  if (latest && new Date(latest.end).getTime() >= nowMs - 60_000) {
-    return {
-      status: latest.kind === 'application' ? 'application' : latest.kind === 'codex-unclassified' ? 'unclassified' : 'confirmed',
-      label: latest.label,
-      projectKey: latest.kind === 'project' ? latest.key : null,
-      app: latest.app,
-      startedAt: latest.start,
-      continuousSeconds: Math.max(0, (nowMs - new Date(latest.start).getTime()) / 1000),
-      projectTodaySeconds: attention.find((slice) => slice.kind === latest.kind && slice.key === latest.key)?.seconds ?? 0
-    }
+  if (latest && Date.parse(latest.end) >= nowMs - 60_000) return {
+    status: latest.kind === 'application' ? 'application' : latest.kind === 'codex-unclassified' ? 'unclassified' : 'confirmed',
+    label: latest.label, projectKey: latest.kind === 'project' ? latest.key : null, app: latest.app,
+    startedAt: latest.start, continuousSeconds: Math.max(0, (nowMs - Date.parse(latest.start)) / 1000),
+    projectTodaySeconds: attention.find((slice) => slice.kind === latest.kind && slice.key === latest.key)?.seconds ?? 0
   }
   return { status: 'idle', label: '等待开始', projectKey: null, app: null, startedAt: null, continuousSeconds: 0, projectTodaySeconds: 0 }
 }
@@ -284,105 +228,37 @@ export function aggregateActivity(
   contextSamples: CodexContextSample[] = [],
   projectAliases: Record<string, string> = {},
   codexContext: CodexContextStatus = EMPTY_CODEX_CONTEXT,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  rules: ActivityRule[] = [],
+  overrides: ActivityOverride[] = [],
+  manualProjects: Record<string, string> = {}
 ): ActivitySummary {
   const currentAlias = codexContext.current ? projectAliases[codexContext.current.projectKey]?.trim() : ''
   const displayCodexContext: CodexContextStatus = currentAlias && codexContext.current
-    ? {
-        ...codexContext,
-        current: {
-          ...codexContext.current,
-          projectLabel: currentAlias,
-          identitySource: 'alias'
-        }
-      }
+    ? { ...codexContext, current: { ...codexContext.current, projectLabel: currentAlias, identitySource: 'alias' } }
     : codexContext
-  const afkPeriods: AfkPeriod[] = afkEvents
-    .filter((event) => event.data.status === 'afk' && event.duration > 0)
-    .map((event) => {
-      const end = new Date(new Date(event.timestamp).getTime() + event.duration * 1000).toISOString()
-      const note = notes.find((item) => item.start === event.timestamp || Math.abs(new Date(item.start).getTime() - new Date(event.timestamp).getTime()) < 1000)
-      return { start: event.timestamp, end, seconds: event.duration, note: note?.note }
-    })
-
-  const afkIntervals = mergeIntervals(afkPeriods.map((period) => ({
-    start: new Date(period.start).getTime(),
-    end: new Date(period.end).getTime()
-  })))
-  const sortedSamples = [...contextSamples].sort((a, b) => a.detectedAt - b.detectedAt)
-  const apps = new Map<string, { seconds: number; titles: Map<string, number> }>()
-  const projects = new Map<string, ProjectAccumulator>()
-  const timelineDrafts: TimelineDraft[] = afkIntervals.map((interval) => ({
-    ...interval,
-    kind: 'afk',
-    key: 'afk',
-    label: '离开电脑',
-    app: null,
-    classified: false
-  }))
-  let activeSeconds = 0
-  let codexActiveSeconds = 0
-
-  for (const event of windowEvents) {
-    const start = new Date(event.timestamp).getTime()
-    const end = start + event.duration * 1000
-    const activeIntervals = subtractIntervals(start, end, afkIntervals)
-    const active = seconds(activeIntervals)
-    if (active <= 0) continue
-
-    activeSeconds += active
-    const app = event.data.app || '未知应用'
-    const title = event.data.title || '无标题'
-    const entry = apps.get(app) ?? { seconds: 0, titles: new Map<string, number>() }
-    entry.seconds += active
-    entry.titles.set(title, (entry.titles.get(title) ?? 0) + active)
-    apps.set(app, entry)
-
-    if (isCodexWindow(app, title)) {
-      codexActiveSeconds += active
-      for (const interval of activeIntervals) attributeInterval(interval, sortedSamples, projects, projectAliases, timelineDrafts)
-    } else {
-      for (const interval of activeIntervals) timelineDrafts.push({
-        ...interval,
-        kind: 'application',
-        key: `app:${app.toLocaleLowerCase()}`,
-        label: app,
-        app,
-        classified: true
-      })
-    }
-  }
-
-  const usage: AppUsage[] = [...apps.entries()]
-    .map(([app, value]) => ({
-      app,
-      seconds: value.seconds,
-      topTitles: [...value.titles.entries()]
-        .map(([title, titleSeconds]) => ({ title, seconds: titleSeconds }))
-        .sort((a, b) => b.seconds - a.seconds)
-        .slice(0, 3)
-    }))
-    .sort((a, b) => b.seconds - a.seconds)
-
-  const projectUsage = [...projects.values()]
-    .map((item) => item.usage)
-    .sort((a, b) => b.seconds - a.seconds)
-  const codexUnclassifiedSeconds = projectUsage
-    .filter((item) => !item.classified)
-    .reduce((total, item) => total + item.seconds, 0)
-  const codexClassifiedSeconds = Math.max(0, codexActiveSeconds - codexUnclassifiedSeconds)
-  const timeline = mergeTimeline(timelineDrafts)
+  const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects)
+  const afkPeriods: AfkPeriod[] = classified.afkPeriods.map((period) => ({
+    ...period,
+    note: notes.find((item) => item.start === period.start || Math.abs(Date.parse(item.start) - Date.parse(period.start)) < 1000)?.note
+  })).sort((a, b) => b.start.localeCompare(a.start))
+  const timeline = timelineFromSegments(classified.segments)
   const attentionSlices = attentionFromTimeline(timeline)
+  const projects = projectUsageFromSegments(classified.segments, contextSamples, projectAliases, manualProjects)
+  const codexSegments = classified.segments.filter((segment) => segment.attribution !== 'afk' && isCodexWindow(segment.app, segment.title))
+  const codexActiveSeconds = codexSegments.reduce((total, segment) => total + segment.seconds, 0)
+  const codexUnclassifiedSeconds = codexSegments.filter((segment) => segment.attribution === 'unclassified').reduce((total, segment) => total + segment.seconds, 0)
+  const codexClassifiedSeconds = Math.max(0, codexActiveSeconds - codexUnclassifiedSeconds)
 
   return {
     connected: true,
     tracking,
     windowBucketId: bucketIds.window,
     afkBucketId: bucketIds.afk,
-    activeSeconds,
-    afkSeconds: seconds(afkIntervals),
-    apps: usage,
-    projects: projectUsage,
+    activeSeconds: classified.activeSeconds,
+    afkSeconds: classified.afkSeconds,
+    apps: appUsageFromSegments(classified.segments),
+    projects,
     codexActiveSeconds,
     codexClassifiedSeconds,
     codexUnclassifiedSeconds,
@@ -391,7 +267,7 @@ export function aggregateActivity(
     timeline,
     attentionSlices,
     focus: focusFromActivity(tracking, timeline, attentionSlices, displayCodexContext, nowMs),
-    afkPeriods: afkPeriods.sort((a, b) => b.start.localeCompare(a.start)),
+    afkPeriods,
     recentEvents: [...windowEvents].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 100),
     error: null,
     updatedAt: new Date().toISOString()
@@ -400,25 +276,10 @@ export function aggregateActivity(
 
 export function disconnectedSummary(tracking: boolean, error: unknown): ActivitySummary {
   return {
-    connected: false,
-    tracking,
-    windowBucketId: null,
-    afkBucketId: null,
-    activeSeconds: 0,
-    afkSeconds: 0,
-    apps: [],
-    projects: [],
-    codexActiveSeconds: 0,
-    codexClassifiedSeconds: 0,
-    codexUnclassifiedSeconds: 0,
-    codexCoveragePercent: 0,
-    codexContext: EMPTY_CODEX_CONTEXT,
-    timeline: [],
-    attentionSlices: [],
+    connected: false, tracking, windowBucketId: null, afkBucketId: null, activeSeconds: 0, afkSeconds: 0,
+    apps: [], projects: [], codexActiveSeconds: 0, codexClassifiedSeconds: 0, codexUnclassifiedSeconds: 0,
+    codexCoveragePercent: 0, codexContext: EMPTY_CODEX_CONTEXT, timeline: [], attentionSlices: [],
     focus: { status: 'disconnected', label: '采集服务未连接', projectKey: null, app: null, startedAt: null, continuousSeconds: 0, projectTodaySeconds: 0 },
-    afkPeriods: [],
-    recentEvents: [],
-    error: error instanceof Error ? error.message : String(error),
-    updatedAt: new Date().toISOString()
+    afkPeriods: [], recentEvents: [], error: error instanceof Error ? error.message : String(error), updatedAt: new Date().toISOString()
   }
 }

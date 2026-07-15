@@ -9,8 +9,9 @@ import type {
   Settings
 } from '../../shared/contracts'
 import { TodayDashboard } from './TodayDashboard'
+import { ActivityDetailsView } from './ActivityDetailsView'
 
-type View = 'today' | 'plan' | 'review' | 'diagnostics' | 'settings'
+type View = 'today' | 'activities' | 'plan' | 'review' | 'diagnostics' | 'settings'
 
 const EMPTY_ACTIVITY: ActivitySummary = {
   connected: false,
@@ -118,6 +119,7 @@ export default function App() {
         <div className="brand"><span className="brand-mark">T</span><div><strong>时间效率助手</strong><small>LOCAL WORK SYSTEM</small></div></div>
         <nav>
           <Nav active={view === 'today'} onClick={() => setView('today')} label="今日概览" />
+          <Nav active={view === 'activities'} onClick={() => setView('activities')} label="活动明细" />
           <Nav active={view === 'plan'} onClick={() => setView('plan')} label="早间计划" badge={data.reminders.morningDue ? '待完成' : undefined} />
           <Nav active={view === 'review'} onClick={() => setView('review')} label="晚间复盘" badge={data.reminders.eveningDue ? '待完成' : undefined} />
           <Nav active={view === 'diagnostics'} onClick={() => setView('diagnostics')} label="诊断" />
@@ -127,7 +129,7 @@ export default function App() {
       </aside>
       <main>
         <header className={view === 'today' ? 'app-header app-header--today' : 'app-header'}>
-          <div><p className="eyebrow">{data.date}</p><h1>{view === 'today' ? '把时间变成结果' : { plan: '早间计划', review: '晚间复盘', diagnostics: '系统诊断', settings: '设置' }[view]}</h1></div>
+          <div><p className="eyebrow">{data.date}</p><h1>{view === 'today' ? '把时间变成结果' : { activities: '活动明细', plan: '早间计划', review: '晚间复盘', diagnostics: '系统诊断', settings: '设置' }[view]}</h1></div>
           {view === 'today' && <div className={`header-focus focus-${data.activity.focus.status}`} data-testid="focus-strip">
             <span className="header-focus__dot" />
             <div className="header-focus__copy"><small>{data.activity.focus.status === 'confirmed' ? '当前项目 · 自动识别' : '当前上下文'}</small><strong title={data.activity.focus.label}>{data.activity.focus.label}</strong></div>
@@ -139,6 +141,7 @@ export default function App() {
         </header>
         {error && <div className="error-banner"><strong>操作未完成</strong>{error}<button onClick={() => setError('')}>×</button></div>}
         {view === 'today' && <Today data={data} busy={busy} setView={setView} run={run} setActivity={setActivity} onReload={load} />}
+        {view === 'activities' && <ActivityDetailsView initialDate={data.date} onActivity={setActivity} />}
         {view === 'plan' && <Plan data={data} busy={busy} run={run} onReload={load} />}
         {view === 'review' && <ReviewView data={data} busy={busy} run={run} onReload={load} />}
         {view === 'diagnostics' && <DiagnosticsView initial={data.diagnostics} busy={busy} run={run} />}

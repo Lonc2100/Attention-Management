@@ -48,7 +48,7 @@ export interface ActivityEvent {
   data: Record<string, string>
 }
 
-export type ProjectIdentitySource = 'folder' | 'thread' | 'fallback' | 'alias'
+export type ProjectIdentitySource = 'folder' | 'thread' | 'fallback' | 'alias' | 'manual'
 
 export interface CodexThreadSummary {
   id: string
@@ -67,7 +67,7 @@ export interface CodexContextSample {
   source: 'vscode'
   projectKey: string
   projectLabel: string
-  identitySource: Exclude<ProjectIdentitySource, 'alias'>
+  identitySource: Exclude<ProjectIdentitySource, 'alias' | 'manual'>
 }
 
 export interface ProjectUsage {
@@ -180,6 +180,69 @@ export interface ActivitySummary {
   updatedAt: string
 }
 
+export type ActivityAttribution = 'manual' | 'rule' | 'codex-context' | 'application' | 'unclassified' | 'afk'
+
+export interface ProjectOption {
+  key: string
+  label: string
+  source: ProjectIdentitySource
+}
+
+export interface ActivityRule {
+  id: string
+  projectKey: string
+  app: string
+  titleMatch: 'contains' | 'exact'
+  titlePattern: string
+  enabled: boolean
+  createdAt: number
+  appliesFrom: number
+}
+
+export interface ActivityOverride {
+  id: string
+  date: string
+  start: string
+  end: string
+  app: string
+  title: string
+  projectKey: string
+  createdAt: number
+}
+
+export interface ActivityDetailEntry {
+  id: string
+  start: string
+  end: string
+  seconds: number
+  app: string
+  title: string
+  projectKey: string | null
+  projectLabel: string
+  attribution: ActivityAttribution
+  ruleId: string | null
+  overrideId: string | null
+  classified: boolean
+  correctable: boolean
+}
+
+export interface ActivityDetails {
+  date: string
+  connected: boolean
+  tracking: boolean
+  rangeStart: string | null
+  rangeEnd: string | null
+  activeSeconds: number
+  afkSeconds: number
+  entries: ActivityDetailEntry[]
+  projectOptions: ProjectOption[]
+  rules: ActivityRule[]
+  partial: boolean
+  warning: string | null
+  error: string | null
+  updatedAt: string
+}
+
 export interface ReminderState {
   morningDue: boolean
   eveningDue: boolean
@@ -221,6 +284,34 @@ export interface ProjectAliasInput {
   label: string
 }
 
+export interface SaveActivityCorrectionInput {
+  date: string
+  entryId: string
+  start: string
+  end: string
+  app: string
+  title: string
+  projectKey: string
+  projectLabel?: string
+  learnRule: boolean
+  titleMatch?: 'contains' | 'exact'
+  titlePattern?: string
+}
+
+export interface RemoveActivityCorrectionInput {
+  date: string
+  overrideId: string
+}
+
+export interface ActivityRuleMutationInput {
+  date: string
+  ruleId: string
+}
+
+export interface MoveActivityRuleInput extends ActivityRuleMutationInput {
+  direction: 'up' | 'down'
+}
+
 export interface TimeEfficiencyApi {
   bootstrap(): Promise<BootstrapData>
   refreshActivity(date?: string): Promise<ActivitySummary>
@@ -232,6 +323,12 @@ export interface TimeEfficiencyApi {
   runAiReview(): Promise<{ text: string }>
   getDiagnostics(): Promise<Diagnostics>
   setProjectAlias(input: ProjectAliasInput): Promise<ActivitySummary>
+  getActivityDetails(date: string): Promise<ActivityDetails>
+  saveActivityCorrection(input: SaveActivityCorrectionInput): Promise<ActivityDetails>
+  removeActivityCorrection(input: RemoveActivityCorrectionInput): Promise<ActivityDetails>
+  setActivityRuleEnabled(input: ActivityRuleMutationInput & { enabled: boolean }): Promise<ActivityDetails>
+  moveActivityRule(input: MoveActivityRuleInput): Promise<ActivityDetails>
+  removeActivityRule(input: ActivityRuleMutationInput): Promise<ActivityDetails>
   showWindow(): Promise<void>
   showWidget(): Promise<void>
   hideWidget(): Promise<void>
@@ -249,6 +346,12 @@ export const IPC = {
   runAiReview: 'ai:run-review',
   getDiagnostics: 'diagnostics:get',
   setProjectAlias: 'projects:set-alias',
+  getActivityDetails: 'activity:details',
+  saveActivityCorrection: 'activity:save-correction',
+  removeActivityCorrection: 'activity:remove-correction',
+  setActivityRuleEnabled: 'activity:rule-enabled',
+  moveActivityRule: 'activity:rule-move',
+  removeActivityRule: 'activity:rule-remove',
   showWindow: 'window:show',
   showWidget: 'widget:show',
   hideWidget: 'widget:hide',

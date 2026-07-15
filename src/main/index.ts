@@ -1,6 +1,15 @@
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } from 'electron'
-import type { AfkNote, PlanInput, ReviewInput, Settings } from '../shared/contracts'
+import type {
+  AfkNote,
+  MoveActivityRuleInput,
+  PlanInput,
+  RemoveActivityCorrectionInput,
+  ReviewInput,
+  SaveActivityCorrectionInput,
+  Settings
+} from '../shared/contracts'
 import { IPC } from '../shared/contracts'
 import { ActivityWatchManager } from './activitywatch'
 import { CodexAppServerClient } from './codex-app-server'
@@ -211,8 +220,33 @@ async function activitySummary(date: string) {
     record.afkNotes,
     store.getCodexContextSamples(date),
     store.getProjectAliases(),
-    codexContextTracker?.getStatus()
+    codexContextTracker?.getStatus(),
+    store.getClassificationRules(),
+    store.getActivityOverrides(date),
+    store.getManualProjects()
   )
+}
+
+async function activityDetails(date: string) {
+  const details = await activityWatch.getDetails(
+    date,
+    store.getCodexContextSamples(date),
+    store.getProjectAliases(),
+    store.getClassificationRules(),
+    store.getActivityOverrides(date),
+    store.getManualProjects()
+  )
+  const projects = new Map(store.getKnownProjectOptions().map((project) => [project.key, project]))
+  for (const project of details.projectOptions) projects.set(project.key, project)
+  return { ...details, projectOptions: [...projects.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN')) }
+}
+
+function validDate(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+function meaningfulRulePattern(value: string): boolean {
+  return value.trim().replace(/\s+/g, ' ').length >= 4
 }
 
 async function bootstrap() {
@@ -290,6 +324,83 @@ function registerIpc(): void {
     }
     store.setProjectAlias(input.projectKey, input.label)
     return activitySummary(localDateKey())
+  })
+  ipcMain.handle(IPC.getActivityDetails, (_event, date: unknown) => {
+    if (!validDate(date)) throw new Error('活动日期无效')
+    return activityDetails(date)
+  })
+  ipcMain.handle(IPC.saveActivityCorrection, async (_event, input: SaveActivityCorrectionInput) => {
+    if (!validDate(input?.date) || typeof input?.entryId !== 'string' || typeof input?.start !== 'string'
+      || typeof input?.end !== 'string' || typeof input?.app !== 'string' || typeof input?.title !== 'string'
+      || typeof input?.projectKey !== 'string' || typeof input?.learnRule !== 'boolean') {
+      throw new Error('活动纠错参数无效')
+    }
+    const start = Date.parse(input.start)
+    const end = Date.parse(input.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 24 * 60 * 60 * 1000) {
+      throw new Error('活动纠错时间范围无效')
+    }
+    const current = await activityDetails(input.date)
+    const selected = current.entries.find((entry) => entry.id === input.entryId
+      && entry.start === input.start && entry.end === input.end && entry.app === input.app && entry.title === input.title)
+    if (!selected || !selected.correctable) throw new Error('这条活动已经变化，请刷新后重新选择')
+
+    let projectKey = input.projectKey.trim()
+    if (projectKey === '__new__') {
+      const label = input.projectLabel?.trim().slice(0, 60) ?? ''
+      if (!label) throw new Error('请输入新项目名称')
+      projectKey = `manual:${randomUUID()}`
+      store.setManualProject(projectKey, label)
+    }
+    const knownKeys = new Set([...current.projectOptions.map((item) => item.key), ...Object.keys(store.getManualProjects())])
+    if (!knownKeys.has(projectKey)) throw new Error('请选择有效项目')
+    if (selected.overrideId) store.removeActivityOverride(input.date, selected.overrideId)
+    store.addActivityOverride({
+      id: randomUUID(),
+      date: input.date,
+      start: input.start,
+      end: input.end,
+      app: input.app.slice(0, 200),
+      title: input.title.slice(0, 500),
+      projectKey,
+      createdAt: Date.now()
+    })
+    if (input.learnRule) {
+      const titleMatch = input.titleMatch === 'exact' ? 'exact' : 'contains'
+      const titlePattern = (input.titlePattern ?? input.title).trim().replace(/\s+/g, ' ').slice(0, 300)
+      if (meaningfulRulePattern(titlePattern)) {
+        const duplicate = store.getClassificationRules().some((rule) => rule.enabled
+          && rule.projectKey === projectKey
+          && rule.app.toLocaleLowerCase() === input.app.trim().toLocaleLowerCase()
+          && rule.titleMatch === titleMatch
+          && rule.titlePattern.toLocaleLowerCase() === titlePattern.toLocaleLowerCase())
+        if (!duplicate) store.addClassificationRule({
+          id: randomUUID(), projectKey, app: input.app.trim().slice(0, 200), titleMatch, titlePattern,
+          enabled: true, createdAt: Date.now(), appliesFrom: Date.now()
+        })
+      }
+    }
+    return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.removeActivityCorrection, async (_event, input: RemoveActivityCorrectionInput) => {
+    if (!validDate(input?.date) || typeof input?.overrideId !== 'string') throw new Error('撤销纠错参数无效')
+    store.removeActivityOverride(input.date, input.overrideId)
+    return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.setActivityRuleEnabled, async (_event, input: { date?: unknown; ruleId?: unknown; enabled?: unknown }) => {
+    if (!validDate(input?.date) || typeof input?.ruleId !== 'string' || typeof input?.enabled !== 'boolean') throw new Error('规则参数无效')
+    store.setClassificationRuleEnabled(input.ruleId, input.enabled)
+    return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.moveActivityRule, async (_event, input: MoveActivityRuleInput) => {
+    if (!validDate(input?.date) || typeof input?.ruleId !== 'string' || (input?.direction !== 'up' && input?.direction !== 'down')) throw new Error('规则排序参数无效')
+    store.moveClassificationRule(input.ruleId, input.direction)
+    return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.removeActivityRule, async (_event, input: { date?: unknown; ruleId?: unknown }) => {
+    if (!validDate(input?.date) || typeof input?.ruleId !== 'string') throw new Error('删除规则参数无效')
+    store.removeClassificationRule(input.ruleId)
+    return activityDetails(input.date)
   })
   ipcMain.handle(IPC.showWindow, () => showWindow())
   ipcMain.handle(IPC.showWidget, () => showWidget())

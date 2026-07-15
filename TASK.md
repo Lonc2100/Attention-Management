@@ -1,8 +1,8 @@
-# TASK — 时间效率助手 v0.3
+# TASK — 时间效率助手 v0.4
 
 ## Objective
 
-在 Windows 上交付真实可安装的注意力驾驶舱，以统一分母呈现项目级时间轴，并通过独立悬浮窗持续反馈当前项目和连续专注时间。
+在 Windows 上交付可检查、可纠正、会学习的本地注意力账本；活动明细、首页汇总与悬浮窗必须共享同一套可信归类结果。
 
 ## Definition of Done
 
@@ -20,6 +20,12 @@
 - [x] 项目化时间轴聚焦实际活动范围
 - [x] 独立悬浮窗支持折叠、置顶/桌面模式、隐藏恢复和位置持久化
 - [x] 最终安装包位于 `artifacts/v0.3.0/`
+- [x] 独立活动明细页与日期时间流
+- [x] 原始应用/标题/来源证据抽屉
+- [x] 可撤销的人工区间纠错与自定义项目
+- [x] 未来生效、可排序/启停/删除的归类规则
+- [x] v3 → v4 数据无损迁移与统一分类引擎
+- [x] 最终安装包位于 `artifacts/v0.4.0/`
 - [ ] v0.3.0 GitHub Release
 
 ## Constraints
@@ -70,13 +76,22 @@
 - [x] v2 → v3 设置迁移和多显示器失效回退
 - [x] 主流程、悬浮窗与 Codex CLI 端到端回归
 
+### Batch 6 — v0.4 活动明细与纠错
+
+- [x] 三栏调查工作台与全状态设计
+- [x] 完整日期活动读取、筛选、联动时间线与证据抽屉
+- [x] 人工纠错、撤销和自定义项目
+- [x] 保守的未来规则学习、冲突优先级和规则管理
+- [x] 首页、悬浮窗和活动明细共用分类结果
+- [x] 纠错与规则创建/删除 Electron 端到端回归
+
 ## Final verification
 
-- Unit tests: 26 passed，2 个真实 Codex 集成场景默认跳过。
-- Electron E2E: 最终轮 11 项通过，含 1440×900 与 1600×1000 无横向溢出检查。
+- Unit tests: 30 passed，2 个真实 Codex 集成场景默认跳过。
+- Electron E2E: 修正测试命中方式后连续两轮 12 项通过；含活动明细、纠错、规则创建/删除、撤销、1440×900 与 1600×1000 无横向溢出检查。
 - Packaged smoke: passed with bundled ActivityWatch v0.13.2.
-- NSIS installer: 188,643,746 bytes；SHA-256 `666CDF4D49E0EFBFFD9724FB15D3EBAFE023115D2E32E95411BB4DF3DFBC5C9D`。
-- Installed upgrade and Windows autostart toggle: passed.
+- NSIS installer: 188,656,779 bytes；SHA-256 `CA89272D925287A7092732287AA4B5934296491DD8AD352946806CBA5B690441`。
+- Installed upgrade and Windows autostart toggle: passed；真实用户数据 v3 → v4，原 2 天记录与 2 天 Codex 样本保留。
 - Manual follow-up: 在真实第二块显示器上补一次拔插回退观察。
 
 ## Decisions

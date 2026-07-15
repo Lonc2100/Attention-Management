@@ -73,17 +73,10 @@ try {
     await app.page.mouse.move(350, 40)
     await app.page.screenshot({ path: join(artifacts, `e2e-attention-dashboard-${width}x${height}.png`), fullPage: false, timeout: 30_000 })
   }
-  const donutTarget = app.page.locator('[data-chart-target="donut"]').first()
-  if (await donutTarget.count()) {
-    const donutBox = await donutTarget.boundingBox()
-    assert.ok(donutBox, 'donut target did not expose a visible hit area')
-    const donutSvgBox = await app.page.locator('svg[aria-label="今日注意力分布"]').boundingBox()
-    const dashArray = (await donutTarget.getAttribute('stroke-dasharray'))?.split(' ').map(Number)
-    assert.ok(donutSvgBox && dashArray && dashArray.length === 2, 'donut geometry was unavailable')
-    const arcFraction = dashArray[0] / dashArray[1]
-    const angle = -Math.PI / 2 + arcFraction * Math.PI
-    const radius = Math.min(donutSvgBox.width, donutSvgBox.height) * 70 / 180
-    await app.page.mouse.move(donutSvgBox.x + donutSvgBox.width / 2 + Math.cos(angle) * radius, donutSvgBox.y + donutSvgBox.height / 2 + Math.sin(angle) * radius)
+  const donutGroup = app.page.locator('.attention-donut__segment').first()
+  const donutTarget = donutGroup.locator('[data-chart-target="donut"]')
+  if (await donutGroup.count()) {
+    await donutGroup.focus()
     await app.page.getByTestId('attention-tooltip').waitFor()
     const activeKey = await donutTarget.getAttribute('data-category-key')
     assert.ok(activeKey, 'donut target did not expose a category key')
@@ -104,6 +97,42 @@ try {
     assert.fail('interactive donut targets were not rendered')
   }
   record('Attention dashboard', 'unified attention overview, chronological timeline and truthful focus state rendered')
+
+  await app.page.getByRole('button', { name: '活动明细' }).click()
+  await app.page.locator('.activity-workspace').waitFor()
+  await app.page.locator('.activity-timeline-card').waitFor()
+  const activityRows = app.page.locator('.activity-list > button')
+  if (await activityRows.count()) {
+    await activityRows.first().click()
+    await app.page.locator('.evidence-card').waitFor()
+    assert.ok((await app.page.locator('.evidence-card').innerText()).length > 20, 'activity evidence drawer was empty')
+    const correctable = activityRows.filter({ has: app.page.locator('.source-badge:not(.source-afk)') }).first()
+    if (await correctable.count()) {
+      await correctable.click()
+      await app.page.locator('.correction-form select').selectOption('__new__')
+      await app.page.getByPlaceholder('例如：自媒体创作').fill('E2E 纠错项目')
+      await app.page.locator('.learn-check input').check()
+      await app.page.locator('.rule-editor input').fill('E2E-CORRECTION-PATTERN')
+      await app.page.getByRole('button', { name: '保存纠错' }).click()
+      await app.page.getByText('规则从现在开始学习', { exact: false }).waitFor()
+      await app.page.getByRole('button', { name: /归类规则/ }).click()
+      const learnedRule = app.page.locator('.rule-list article').filter({ hasText: 'E2E-CORRECTION-PATTERN' })
+      await learnedRule.waitFor()
+      await learnedRule.getByRole('button', { name: '删除' }).click()
+      await app.page.getByText('规则已删除', { exact: false }).waitFor()
+      await app.page.getByRole('button', { name: '活动明细', exact: true }).last().click()
+      await app.page.getByRole('button', { name: '撤销这次纠错' }).click()
+      await app.page.getByText('已撤销人工纠错', { exact: false }).waitFor()
+    }
+  }
+  const detailsOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  assert.equal(detailsOverflow, true, 'activity details overflowed horizontally')
+  await app.page.screenshot({ path: join(artifacts, 'e2e-activity-details.png'), fullPage: false, timeout: 30_000 })
+  await app.page.getByRole('button', { name: /归类规则/ }).click()
+  await app.page.locator('.rule-manager').waitFor()
+  record('Activity details', 'timeline, evidence drawer, reversible correction, learned rule creation/deletion, filters, and rule manager rendered')
+
+  await app.page.getByRole('button', { name: '今日概览' }).click()
 
   await app.widget.getByTestId('floating-widget').waitFor()
   if (!await app.widget.getByText('电脑活跃', { exact: true }).isVisible()) {

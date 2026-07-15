@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { ActivityOverride, ActivityRule, CodexContextSample, DailyRecord, Outcome, ProjectOption, Settings } from '../shared/contracts'
+import type { ActivityOverride, ActivityRule, CodexContextSample, DailyRecord, Outcome, PrivacyRule, ProjectOption, Settings } from '../shared/contracts'
 import { emptyRecord } from './date'
 
-type PersistedDataV5 = {
-  version: 5
+export type PersistedDataV6 = {
+  version: 6
   settings: Settings
   records: Record<string, DailyRecord>
   codexContextSamples: Record<string, CodexContextSample[]>
@@ -12,6 +12,7 @@ type PersistedDataV5 = {
   classificationRules: ActivityRule[]
   activityOverrides: Record<string, ActivityOverride[]>
   manualProjects: Record<string, string>
+  privacyRules: PrivacyRule[]
 }
 type PersistedDataInput = {
   version?: number
@@ -22,6 +23,7 @@ type PersistedDataInput = {
   classificationRules?: ActivityRule[]
   activityOverrides?: Record<string, ActivityOverride[]>
   manualProjects?: Record<string, string>
+  privacyRules?: PrivacyRule[]
 }
 
 const MAX_CONTEXT_SAMPLES_PER_DAY = 5_000
@@ -46,11 +48,12 @@ export const defaultSettings: Settings = {
   aiProvider: 'codex-cli',
   widgetMode: 'always-on-top',
   widgetExpanded: false,
-  widgetPosition: null
+  widgetPosition: null,
+  onboardingCompletedAt: null
 }
 
 export class AppStore {
-  private data: PersistedDataV5
+  private data: PersistedDataV6
   private migrationRequired = false
 
   constructor(private readonly filePath: string) {
@@ -220,34 +223,86 @@ export class AppStore {
     return this.getManualProjects()
   }
 
-  private load(): PersistedDataV5 {
+  getPrivacyRules(): PrivacyRule[] {
+    return structuredClone(this.data.privacyRules)
+  }
+
+  addPrivacyRule(rule: PrivacyRule): PrivacyRule[] {
+    if (!rule.app.trim() || !rule.titlePattern.trim()) throw new Error('隐私规则需要应用名和窗口标题条件')
+    if (this.data.privacyRules.some((item) => item.id === rule.id)) throw new Error('隐私规则 ID 已存在')
+    this.data.privacyRules.push(structuredClone(rule))
+    this.save()
+    return this.getPrivacyRules()
+  }
+
+  setPrivacyRuleEnabled(ruleId: string, enabled: boolean): PrivacyRule[] {
+    const rule = this.data.privacyRules.find((item) => item.id === ruleId)
+    if (!rule) throw new Error('隐私规则不存在')
+    rule.enabled = enabled
+    this.save()
+    return this.getPrivacyRules()
+  }
+
+  removePrivacyRule(ruleId: string): PrivacyRule[] {
+    this.data.privacyRules = this.data.privacyRules.filter((item) => item.id !== ruleId)
+    this.save()
+    return this.getPrivacyRules()
+  }
+
+  exportData(): PersistedDataV6 {
+    return structuredClone(this.data)
+  }
+
+  /** Restore only after a validated backup envelope; caller chooses recovery path. */
+  restoreData(input: unknown, recoveryPath: string): void {
+    if (!input || typeof input !== 'object') throw new Error('备份应用数据无效')
+    const parsed = input as PersistedDataInput
+    if (!parsed.settings || !parsed.records || typeof parsed.settings !== 'object' || typeof parsed.records !== 'object') {
+      throw new Error('备份应用数据无效')
+    }
+    if (existsSync(this.filePath)) {
+      mkdirSync(dirname(recoveryPath), { recursive: true })
+      copyFileSync(this.filePath, recoveryPath)
+    }
+    this.data = this.hydrate(parsed)
+    this.migrationRequired = false
+    this.save()
+  }
+
+  private load(): PersistedDataV6 {
     try {
       if (existsSync(this.filePath)) {
         const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as PersistedDataInput
-        this.migrationRequired = parsed.version !== 5
-        return {
-          version: 5,
-          settings: { ...defaultSettings, ...parsed.settings, aiProvider: 'codex-cli' },
-          records: Object.fromEntries(Object.entries(parsed.records ?? {}).map(([date, record]) => [date, normalizeRecord(record)])),
-          codexContextSamples: parsed.codexContextSamples ?? {},
-          projectAliases: parsed.projectAliases ?? {},
-          classificationRules: parsed.classificationRules ?? [],
-          activityOverrides: parsed.activityOverrides ?? {},
-          manualProjects: parsed.manualProjects ?? {}
-        }
+        this.migrationRequired = parsed.version !== 6
+        return this.hydrate(parsed)
       }
     } catch (error) {
       console.error('Failed to load app data:', error)
     }
     return {
-      version: 5,
+      version: 6,
       settings: { ...defaultSettings },
       records: {},
       codexContextSamples: {},
       projectAliases: {},
       classificationRules: [],
       activityOverrides: {},
-      manualProjects: {}
+      manualProjects: {},
+      privacyRules: []
+    }
+  }
+
+  private hydrate(parsed: PersistedDataInput): PersistedDataV6 {
+    return {
+      version: 6,
+      settings: { ...defaultSettings, ...parsed.settings, aiProvider: 'codex-cli' },
+      records: Object.fromEntries(Object.entries(parsed.records ?? {}).map(([date, record]) => [date, normalizeRecord(record)])),
+      codexContextSamples: parsed.codexContextSamples ?? {},
+      projectAliases: parsed.projectAliases ?? {},
+      classificationRules: parsed.classificationRules ?? [],
+      activityOverrides: parsed.activityOverrides ?? {},
+      manualProjects: parsed.manualProjects ?? {},
+      privacyRules: Array.isArray(parsed.privacyRules) ? parsed.privacyRules.filter((rule): rule is PrivacyRule => Boolean(rule) && typeof rule.id === 'string' && typeof rule.app === 'string' && typeof rule.titlePattern === 'string' && typeof rule.enabled === 'boolean' && typeof rule.createdAt === 'number') : []
     }
   }
 

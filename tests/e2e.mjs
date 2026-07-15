@@ -6,7 +6,9 @@ import { _electron as electron } from 'playwright-core'
 
 const root = resolve(import.meta.dirname, '..')
 const artifacts = join(root, 'tests', '.artifacts')
-const profile = join(artifacts, 'e2e-profile')
+// A fresh profile makes first-run assertions real while restart persistence is
+// still checked by relaunching the same profile later in this script.
+const profile = join(artifacts, `e2e-profile-${Date.now()}`)
 const executable = join(root, 'node_modules', 'electron', 'dist', 'electron.exe')
 mkdirSync(profile, { recursive: true })
 
@@ -55,6 +57,11 @@ try {
   if (await pausedStatus.isVisible()) {
     await app.page.getByRole('button', { name: '恢复采集' }).click()
     await runningStatus.waitFor()
+  }
+  const onboarding = app.page.getByRole('button', { name: '我已了解，开始使用' })
+  if (await onboarding.isVisible()) {
+    await onboarding.click()
+    record('First-run onboarding', 'connected profile explicitly acknowledged local collection boundary')
   }
   record('ActivityWatch UI status', 'connected and tracking')
   await app.page.getByTestId('attention-overview').waitFor()
@@ -184,6 +191,16 @@ try {
   const topMode = await app.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((item) => item.webContents.getURL().includes('window=widget'))?.isAlwaysOnTop() === true)
   assert.equal(topMode, true, 'always-on-top widget mode was not restored')
   record('Floating widget lifecycle', 'hide, reopen, desktop mode and always-on-top mode worked')
+  await app.page.getByLabel('隐私应用名').fill('chrome.exe')
+  await app.page.getByLabel('隐私标题条件').fill('仅测试排除')
+  await app.page.getByRole('button', { name: '添加排除' }).click()
+  await app.page.getByText('仅测试排除', { exact: false }).waitFor()
+  const privacySwitch = app.page.getByLabel('启用 chrome.exe')
+  await privacySwitch.click()
+  await privacySwitch.click()
+  await app.page.getByRole('button', { name: '删除', exact: true }).last().click()
+  await app.page.getByText('暂未设置排除规则。', { exact: true }).waitFor()
+  record('Privacy controls', 'local derived-data exclusion rule could be added, toggled, and removed')
 
   await app.page.getByRole('button', { name: /^早间计划/ }).click()
   const inputs = app.page.locator('.outcome-input input:last-child')
@@ -245,7 +262,7 @@ try {
   assert.ok(processCount(resumed, 'aw-watcher-afk.exe') > processCount(paused, 'aw-watcher-afk.exe'))
   record('Resume tracking', 'the test-owned watcher process counts recovered')
 
-  await app.page.getByRole('button', { name: '诊断' }).click()
+  await app.page.getByRole('button', { name: '诊断', exact: true }).click()
   await app.page.getByText('Codex 项目识别', { exact: true }).waitFor()
   record('Codex context diagnostics', 'official app-server context source is visible in diagnostics')
 

@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell, Tray } from 'electron'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type {
   AfkNote,
   MoveActivityRuleInput,
@@ -19,6 +20,7 @@ import { codexDiagnostics, runCodexReview } from './codex'
 import { localDateKey, recentDateKeys, reminderState } from './date'
 import { AppStore } from './store'
 import { applyWidgetMode, widgetBounds, WIDGET_SIZE } from './floating-window'
+import { buildAggregatedCsv, createBackupEnvelope, parseBackupEnvelope } from './backup-service'
 
 let window: BrowserWindow | null = null
 let widgetWindow: BrowserWindow | null = null
@@ -230,7 +232,8 @@ async function activitySummary(date: string) {
     codexContextTracker?.getStatus(),
     store.getClassificationRules(),
     store.getActivityOverrides(date),
-    store.getManualProjects()
+    store.getManualProjects(),
+    store.getPrivacyRules()
   )
 }
 
@@ -244,7 +247,8 @@ async function historicalActivitySummary(date: string) {
     date === localDateKey() ? codexContextTracker?.getStatus() : undefined,
     store.getClassificationRules(),
     store.getActivityOverrides(date),
-    store.getManualProjects()
+    store.getManualProjects(),
+    store.getPrivacyRules()
   )
 }
 
@@ -266,7 +270,8 @@ async function activityDetails(date: string) {
     store.getProjectAliases(),
     store.getClassificationRules(),
     store.getActivityOverrides(date),
-    store.getManualProjects()
+    store.getManualProjects(),
+    store.getPrivacyRules()
   )
   const projects = new Map(store.getKnownProjectOptions().map((project) => [project.key, project]))
   for (const project of details.projectOptions) projects.set(project.key, project)
@@ -452,6 +457,66 @@ function registerIpc(): void {
   ipcMain.handle(IPC.setWidgetExpanded, (_event, expanded: unknown) => {
     if (typeof expanded !== 'boolean') throw new Error('悬浮窗展开状态无效')
     return setWidgetExpanded(expanded)
+  })
+  ipcMain.handle(IPC.completeOnboarding, () => store.updateSettings({ onboardingCompletedAt: new Date().toISOString() }))
+  ipcMain.handle(IPC.getPrivacyRules, () => store.getPrivacyRules())
+  ipcMain.handle(IPC.addPrivacyRule, (_event, input: { app?: unknown; titlePattern?: unknown }) => {
+    if (typeof input?.app !== 'string' || typeof input?.titlePattern !== 'string' || !input.app.trim() || !input.titlePattern.trim()) {
+      throw new Error('隐私规则需要应用名和窗口标题条件')
+    }
+    return store.addPrivacyRule({ id: randomUUID(), app: input.app.trim().slice(0, 120), titlePattern: input.titlePattern.trim().slice(0, 200), enabled: true, createdAt: Date.now() })
+  })
+  ipcMain.handle(IPC.setPrivacyRuleEnabled, (_event, input: { ruleId?: unknown; enabled?: unknown }) => {
+    if (typeof input?.ruleId !== 'string' || typeof input?.enabled !== 'boolean') throw new Error('隐私规则参数无效')
+    return store.setPrivacyRuleEnabled(input.ruleId, input.enabled)
+  })
+  ipcMain.handle(IPC.removePrivacyRule, (_event, input: { ruleId?: unknown }) => {
+    if (typeof input?.ruleId !== 'string') throw new Error('隐私规则参数无效')
+    return store.removePrivacyRule(input.ruleId)
+  })
+  ipcMain.handle(IPC.exportBackup, async () => {
+    const options = {
+      title: '导出本地应用数据备份', defaultPath: `时间效率助手-备份-${localDateKey()}.json`,
+      filters: [{ name: 'JSON 备份', extensions: ['json'] }]
+    }
+    const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { path: null }
+    writeFileSync(result.filePath, JSON.stringify(createBackupEnvelope(store.exportData()), null, 2), 'utf8')
+    return { path: result.filePath }
+  })
+  ipcMain.handle(IPC.importBackup, async () => {
+    const options = { title: '恢复本地应用数据备份', properties: ['openFile'] as ('openFile')[], filters: [{ name: 'JSON 备份', extensions: ['json'] }] }
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || !result.filePaths[0]) return { restored: false, recoveryPath: null }
+    const backup = parseBackupEnvelope(readFileSync(result.filePaths[0], 'utf8'))
+    const recoveryPath = join(app.getPath('userData'), `time-efficiency-recovery-${Date.now()}.json`)
+    store.restoreData(backup.appData, recoveryPath)
+    return { restored: true, recoveryPath }
+  })
+  ipcMain.handle(IPC.exportAggregatedCsv, async () => {
+    const options = {
+      title: '导出聚合复盘 CSV', defaultPath: `时间效率助手-复盘-${localDateKey()}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }]
+    }
+    const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { path: null }
+    writeFileSync(result.filePath, `\ufeff${buildAggregatedCsv(store.exportData())}`, 'utf8')
+    return { path: result.filePath }
+  })
+  ipcMain.handle(IPC.exportDiagnostics, async () => {
+    const options = {
+      title: '导出脱敏诊断包', defaultPath: `时间效率助手-诊断-${localDateKey()}.json`, filters: [{ name: 'JSON', extensions: ['json'] }]
+    }
+    const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options)
+    if (result.canceled || !result.filePath) return { path: null }
+    const report = {
+      format: 'time-efficiency-diagnostics', version: app.getVersion(), platform: process.platform,
+      exportedAt: new Date().toISOString(), storageSchema: store.exportData().version,
+      privacyRuleCount: store.getPrivacyRules().length, classificationRuleCount: store.getClassificationRules().length,
+      signed: false, updatePolicy: 'no-auto-update',
+      diagnostics: Object.fromEntries(Object.entries(await diagnostics()).map(([key, value]) => [key, { ok: value.ok }]))
+    }
+    writeFileSync(result.filePath, JSON.stringify(report, null, 2), 'utf8')
+    return { path: result.filePath }
   })
 }
 

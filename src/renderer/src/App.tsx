@@ -6,6 +6,7 @@ import type {
   BootstrapData,
   Diagnostics,
   OutcomeStatus,
+  PrivacyRule,
   Settings
 } from '../../shared/contracts'
 import { TodayDashboard } from './TodayDashboard'
@@ -152,6 +153,7 @@ export default function App() {
         {view === 'review' && <ReviewView data={data} busy={busy} run={run} onReload={load} />}
         {view === 'diagnostics' && <DiagnosticsView initial={data.diagnostics} busy={busy} run={run} />}
         {view === 'settings' && <SettingsView settings={data.settings} activity={data.activity} busy={busy} run={run} setSettings={setSettings} setActivity={setActivity} onReload={load} />}
+        {!data.settings.onboardingCompletedAt && <Onboarding data={data} busy={busy} run={run} setSettings={setSettings} />}
       </main>
     </div>
   )
@@ -237,6 +239,14 @@ function DiagnosticsView({ initial, busy, run }: { initial: Diagnostics; busy: s
 
 function SettingsView({ settings, activity, busy, run, setSettings, setActivity, onReload }: { settings: Settings; activity: ActivitySummary; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; setSettings: (settings: Settings) => void; setActivity: (activity: ActivitySummary) => void; onReload: () => Promise<void> }) {
   const update = (patch: Partial<Settings>) => run('settings', async () => setSettings(await window.timeEfficiency.updateSettings(patch)))
+  const [privacyRules, setPrivacyRules] = useState<PrivacyRule[]>([])
+  const [privacyApp, setPrivacyApp] = useState('')
+  const [privacyTitle, setPrivacyTitle] = useState('')
+  useEffect(() => { void window.timeEfficiency.getPrivacyRules().then(setPrivacyRules) }, [])
+  const addPrivacy = () => run('privacy', async () => {
+    setPrivacyRules(await window.timeEfficiency.addPrivacyRule({ app: privacyApp, titlePattern: privacyTitle }))
+    setPrivacyApp(''); setPrivacyTitle(''); await onReload()
+  })
   return <section className="panel settings">
     <div className="settings-group"><p className="eyebrow">FLOATING FOCUS</p><h2>悬浮专注窗</h2></div>
     <SettingRow title="显示悬浮专注窗" note="显示当前项目与连续专注时间；隐藏后仍可从托盘恢复。"><button className="secondary" onClick={() => window.timeEfficiency.showWidget()}>显示悬浮窗</button></SettingRow>
@@ -247,7 +257,18 @@ function SettingsView({ settings, activity, busy, run, setSettings, setActivity,
     <SettingRow title="早间计划提醒" note="若当时关机，会在下次启动时补提醒。"><input type="time" value={settings.morningReminder} onChange={(event) => update({ morningReminder: event.target.value })} /></SettingRow>
     <SettingRow title="晚间复盘提醒" note="初始固定时间；后续可根据个人规律调整。"><input type="time" value={settings.eveningReminder} onChange={(event) => update({ eveningReminder: event.target.value })} /></SettingRow>
     <SettingRow title="AI 通道" note="使用本机已登录的 Codex CLI，不需要额外 API Key。"><span className="chip">Codex CLI</span></SettingRow>
+    <div className="settings-group separated"><p className="eyebrow">PRIVACY</p><h2>派生数据排除</h2><small>只隐藏本应用中的派生展示、AI 摘要和导出；不会改写 ActivityWatch 原始数据。</small></div>
+    <div className="privacy-form"><input aria-label="隐私应用名" value={privacyApp} onChange={(event) => setPrivacyApp(event.target.value)} placeholder="应用名，如 chrome.exe" /><input aria-label="隐私标题条件" value={privacyTitle} onChange={(event) => setPrivacyTitle(event.target.value)} placeholder="窗口标题包含文字" /><button className="secondary" disabled={busy === 'privacy' || !privacyApp.trim() || !privacyTitle.trim()} onClick={addPrivacy}>添加排除</button></div>
+    <div className="privacy-rule-list">{privacyRules.length ? privacyRules.map((rule) => <div key={rule.id}><span><strong>{rule.app}</strong><small>标题含「{rule.titlePattern}」</small></span><button className={`switch ${rule.enabled ? 'on' : ''}`} aria-label={`启用 ${rule.app}`} onClick={() => run('privacy', async () => { setPrivacyRules(await window.timeEfficiency.setPrivacyRuleEnabled({ ruleId: rule.id, enabled: !rule.enabled })); await onReload() })}><i /></button><button className="text-button" onClick={() => run('privacy', async () => { setPrivacyRules(await window.timeEfficiency.removePrivacyRule({ ruleId: rule.id })); await onReload() })}>删除</button></div>) : <p className="muted">暂未设置排除规则。</p>}</div>
+    <div className="settings-group separated"><p className="eyebrow">LOCAL DATA</p><h2>备份、恢复与导出</h2><small>备份仅包含本应用数据；ActivityWatch 原始活动请使用其自身的导出功能。</small></div>
+    <div className="data-actions"><button className="secondary" onClick={() => run('backup', async () => { await window.timeEfficiency.exportBackup() })}>导出本地备份</button><button className="secondary" onClick={() => run('restore', async () => { const result = await window.timeEfficiency.importBackup(); if (result.restored) await onReload() })}>恢复备份</button><button className="secondary" onClick={() => run('csv', async () => { await window.timeEfficiency.exportAggregatedCsv() })}>导出聚合 CSV</button><button className="secondary" onClick={() => run('diagnostic-export', async () => { await window.timeEfficiency.exportDiagnostics() })}>导出脱敏诊断</button></div>
+    <div className="settings-group separated"><p className="eyebrow">RELEASE STATUS</p><h2>版本与更新</h2><small>当前为本地 Windows 测试版。安装包尚未代码签名；不自动更新，也不应被视为可信公开发布。</small></div>
   </section>
+}
+
+function Onboarding({ data, busy, run, setSettings }: { data: BootstrapData; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; setSettings: (settings: Settings) => void }) {
+  const ready = data.activity.connected && data.activity.tracking
+  return <div className="onboarding-backdrop" role="dialog" aria-modal="true"><section className="onboarding-card"><p className="eyebrow">WELCOME · LOCAL FIRST</p><h2>开始前，先确认记录边界</h2><ul><li>仅使用 ActivityWatch 的前台应用、窗口标题与 AFK 状态；不录屏、不采集键盘正文。</li><li>所有数据默认保存在这台电脑；AI 只接收聚合摘要。</li><li>Codex 项目只在可信上下文中归属；跨应用项目归属仍需谨慎确认。</li><li>你可以随时在设置中暂停采集或新增排除规则。</li></ul><div className={ready ? 'onboarding-status ready' : 'onboarding-status'}>{ready ? '✓ ActivityWatch 已连接，采集已开启' : '！ActivityWatch 未连接或采集已暂停；请先修复后再继续'}</div><button className="primary full" disabled={!ready || busy === 'onboarding'} onClick={() => run('onboarding', async () => setSettings(await window.timeEfficiency.completeOnboarding()))}>{busy === 'onboarding' ? '保存中…' : '我已了解，开始使用'}</button></section></div>
 }
 
 function SettingRow({ title, note, children }: { title: string; note: string; children: ReactNode }) {

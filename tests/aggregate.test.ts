@@ -152,4 +152,16 @@ describe('ActivityWatch aggregation', () => {
     ])
     expect(result.attentionSlices.reduce((total, slice) => total + slice.seconds, 0)).toBe(result.activeSeconds)
   })
+
+  it('redacts matching private activity from every derived attention view without reducing its honest duration', () => {
+    const result = aggregateActivity(
+      [{ id: 1, timestamp: '2026-07-14T06:00:00.000Z', duration: 120, data: { app: 'chrome.exe', title: '银行账户绝密' } }],
+      [], [], true, { window: 'window', afk: 'afk' }, [], {}, undefined,
+      Date.parse('2026-07-14T06:02:00.000Z'), [], [], {},
+      [{ id: 'private', app: 'chrome.exe', titlePattern: '账户', enabled: true, createdAt: 0 }]
+    )
+    expect(result.activeSeconds).toBe(120)
+    expect(JSON.stringify({ apps: result.apps, timeline: result.timeline, attention: result.attentionSlices, projects: result.projects })).not.toContain('银行账户绝密')
+    expect(result.attentionSlices).toEqual([expect.objectContaining({ label: '已隐藏活动', seconds: 120 })])
+  })
 })

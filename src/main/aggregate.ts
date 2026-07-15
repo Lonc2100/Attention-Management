@@ -12,6 +12,7 @@ import type {
   FocusSnapshot,
   ProjectIdentitySource,
   ProjectUsage,
+  PrivacyRule,
   TimelineSlice
 } from '../shared/contracts'
 import { classifyActivityDay, type ClassifiedSegment } from './classification'
@@ -72,6 +73,32 @@ function attentionFromTimeline(timeline: TimelineSlice[]): AttentionSlice[] {
     })
   }
   return [...leaves.values()].sort((a, b) => b.seconds - a.seconds)
+}
+
+function privacyMatches(rule: PrivacyRule, segment: ClassifiedSegment): boolean {
+  if (!rule.enabled || rule.app.trim().toLocaleLowerCase() !== segment.app.trim().toLocaleLowerCase()) return false
+  return segment.title.toLocaleLowerCase().includes(rule.titlePattern.trim().toLocaleLowerCase())
+}
+
+/** Keep duration while removing all identifying fields from our derived model. */
+function applyPrivacyRules(segments: ClassifiedSegment[], rules: PrivacyRule[]): ClassifiedSegment[] {
+  if (!rules.length) return segments
+  return segments.map((segment) => {
+    if (segment.attribution === 'afk' || !rules.some((rule) => privacyMatches(rule, segment))) return segment
+    return {
+      ...segment,
+      app: '已隐藏活动',
+      title: '',
+      projectKey: null,
+      projectLabel: '已隐藏活动',
+      attribution: 'application',
+      ruleId: null,
+      overrideId: null,
+      sample: null,
+      classified: false,
+      correctable: false
+    }
+  })
 }
 
 function timelineFromSegments(segments: ClassifiedSegment[]): TimelineSlice[] {
@@ -231,21 +258,23 @@ export function aggregateActivity(
   nowMs: number = Date.now(),
   rules: ActivityRule[] = [],
   overrides: ActivityOverride[] = [],
-  manualProjects: Record<string, string> = {}
+  manualProjects: Record<string, string> = {},
+  privacyRules: PrivacyRule[] = []
 ): ActivitySummary {
   const currentAlias = codexContext.current ? projectAliases[codexContext.current.projectKey]?.trim() : ''
   const displayCodexContext: CodexContextStatus = currentAlias && codexContext.current
     ? { ...codexContext, current: { ...codexContext.current, projectLabel: currentAlias, identitySource: 'alias' } }
     : codexContext
   const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects)
+  const privacySafeSegments = applyPrivacyRules(classified.segments, privacyRules)
   const afkPeriods: AfkPeriod[] = classified.afkPeriods.map((period) => ({
     ...period,
     note: notes.find((item) => item.start === period.start || Math.abs(Date.parse(item.start) - Date.parse(period.start)) < 1000)?.note
   })).sort((a, b) => b.start.localeCompare(a.start))
-  const timeline = timelineFromSegments(classified.segments)
+  const timeline = timelineFromSegments(privacySafeSegments)
   const attentionSlices = attentionFromTimeline(timeline)
-  const projects = projectUsageFromSegments(classified.segments, contextSamples, projectAliases, manualProjects)
-  const codexSegments = classified.segments.filter((segment) => segment.attribution !== 'afk' && isCodexWindow(segment.app, segment.title))
+  const projects = projectUsageFromSegments(privacySafeSegments, contextSamples, projectAliases, manualProjects)
+  const codexSegments = privacySafeSegments.filter((segment) => segment.attribution !== 'afk' && isCodexWindow(segment.app, segment.title))
   const codexActiveSeconds = codexSegments.reduce((total, segment) => total + segment.seconds, 0)
   const codexUnclassifiedSeconds = codexSegments.filter((segment) => segment.attribution === 'unclassified').reduce((total, segment) => total + segment.seconds, 0)
   const codexClassifiedSeconds = Math.max(0, codexActiveSeconds - codexUnclassifiedSeconds)
@@ -257,7 +286,7 @@ export function aggregateActivity(
     afkBucketId: bucketIds.afk,
     activeSeconds: classified.activeSeconds,
     afkSeconds: classified.afkSeconds,
-    apps: appUsageFromSegments(classified.segments),
+    apps: appUsageFromSegments(privacySafeSegments),
     projects,
     codexActiveSeconds,
     codexClassifiedSeconds,

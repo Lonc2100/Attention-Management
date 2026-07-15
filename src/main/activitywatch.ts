@@ -9,7 +9,8 @@ import type {
   ActivitySummary,
   AfkNote,
   CodexContextSample,
-  CodexContextStatus
+  CodexContextStatus,
+  PrivacyRule
 } from '../shared/contracts'
 import { aggregateActivity, disconnectedSummary } from './aggregate'
 import { classifyActivityDay } from './classification'
@@ -111,7 +112,8 @@ export class ActivityWatchManager {
     codexContext?: CodexContextStatus,
     rules: ActivityRule[] = [],
     overrides: ActivityOverride[] = [],
-    manualProjects: Record<string, string> = {}
+    manualProjects: Record<string, string> = {},
+    privacyRules: PrivacyRule[] = []
   ): Promise<ActivitySummary> {
     try {
       await waitForServer(1500)
@@ -134,7 +136,8 @@ export class ActivityWatchManager {
         Date.now(),
         rules,
         overrides,
-        manualProjects
+        manualProjects,
+        privacyRules
       )
     } catch (error) {
       return disconnectedSummary(this.tracking, error)
@@ -147,7 +150,8 @@ export class ActivityWatchManager {
     projectAliases: Record<string, string> = {},
     rules: ActivityRule[] = [],
     overrides: ActivityOverride[] = [],
-    manualProjects: Record<string, string> = {}
+    manualProjects: Record<string, string> = {},
+    privacyRules: PrivacyRule[] = []
   ): Promise<ActivityDetails> {
     try {
       await waitForServer(1500)
@@ -159,6 +163,14 @@ export class ActivityWatchManager {
         afkBucket ? this.getEvents(afkBucket.id, date) : Promise.resolve([])
       ])
       const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects)
+      const privateEntry = (entry: ActivityDetails['entries'][number]) => privacyRules.some((rule) => rule.enabled
+        && rule.app.trim().toLocaleLowerCase() === entry.app.trim().toLocaleLowerCase()
+        && entry.title.toLocaleLowerCase().includes(rule.titlePattern.trim().toLocaleLowerCase()))
+      const entries = classified.entries.map((entry) => privateEntry(entry) ? {
+        ...entry, id: `private:${entry.start}:${entry.end}`, app: '已隐藏活动', title: '已按隐私规则隐藏',
+        projectKey: null, projectLabel: '已隐藏活动', attribution: 'application' as const,
+        ruleId: null, overrideId: null, classified: false, correctable: false
+      } : entry)
       const projectOptions = new Map<string, { key: string; label: string; source: 'folder' | 'thread' | 'fallback' | 'alias' | 'manual' }>()
       for (const sample of contextSamples) {
         const identity = identityForSample(sample, projectAliases)
@@ -170,8 +182,8 @@ export class ActivityWatchManager {
         const label = projectAliases[rule.projectKey]?.trim()
         if (label) projectOptions.set(rule.projectKey, { key: rule.projectKey, label, source: 'alias' })
       }
-      const rangeStart = classified.entries[0]?.start ?? null
-      const rangeEnd = classified.entries[classified.entries.length - 1]?.end ?? null
+      const rangeStart = entries[0]?.start ?? null
+      const rangeEnd = entries[entries.length - 1]?.end ?? null
       const partial = !afkBucket
       return {
         date,
@@ -181,7 +193,7 @@ export class ActivityWatchManager {
         rangeEnd,
         activeSeconds: classified.activeSeconds,
         afkSeconds: classified.afkSeconds,
-        entries: classified.entries,
+        entries,
         projectOptions: [...projectOptions.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN')),
         rules,
         partial,

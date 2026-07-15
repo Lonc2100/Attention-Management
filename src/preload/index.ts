@@ -34,7 +34,16 @@ const api: TimeEfficiencyApi = {
   showWindow: () => ipcRenderer.invoke(IPC.showWindow),
   showWidget: () => ipcRenderer.invoke(IPC.showWidget),
   hideWidget: () => ipcRenderer.invoke(IPC.hideWidget),
-  setWidgetExpanded: (expanded: boolean) => ipcRenderer.invoke(IPC.setWidgetExpanded, expanded)
+  setWidgetExpanded: (expanded: boolean) => ipcRenderer.invoke(IPC.setWidgetExpanded, expanded),
+  completeOnboarding: () => ipcRenderer.invoke(IPC.completeOnboarding),
+  getPrivacyRules: () => ipcRenderer.invoke(IPC.getPrivacyRules),
+  addPrivacyRule: (input) => ipcRenderer.invoke(IPC.addPrivacyRule, input),
+  setPrivacyRuleEnabled: (input) => ipcRenderer.invoke(IPC.setPrivacyRuleEnabled, input),
+  removePrivacyRule: (input) => ipcRenderer.invoke(IPC.removePrivacyRule, input),
+  exportBackup: () => ipcRenderer.invoke(IPC.exportBackup),
+  importBackup: () => ipcRenderer.invoke(IPC.importBackup),
+  exportAggregatedCsv: () => ipcRenderer.invoke(IPC.exportAggregatedCsv),
+  exportDiagnostics: () => ipcRenderer.invoke(IPC.exportDiagnostics)
 }
 
 contextBridge.exposeInMainWorld('timeEfficiency', api)

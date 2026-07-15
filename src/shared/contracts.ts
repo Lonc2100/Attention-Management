@@ -40,6 +40,16 @@ export interface Settings {
   widgetMode: 'always-on-top' | 'desktop'
   widgetExpanded: boolean
   widgetPosition: { x: number; y: number; displayId: string } | null
+  onboardingCompletedAt: string | null
+}
+
+/** A local display rule; ActivityWatch's source events are never modified. */
+export interface PrivacyRule {
+  id: string
+  app: string
+  titlePattern: string
+  enabled: boolean
+  createdAt: number
 }
 
 export interface ActivityEvent {
@@ -375,6 +385,15 @@ export interface TimeEfficiencyApi {
   showWidget(): Promise<void>
   hideWidget(): Promise<void>
   setWidgetExpanded(expanded: boolean): Promise<Settings>
+  completeOnboarding(): Promise<Settings>
+  getPrivacyRules(): Promise<PrivacyRule[]>
+  addPrivacyRule(input: { app: string; titlePattern: string }): Promise<PrivacyRule[]>
+  setPrivacyRuleEnabled(input: { ruleId: string; enabled: boolean }): Promise<PrivacyRule[]>
+  removePrivacyRule(input: { ruleId: string }): Promise<PrivacyRule[]>
+  exportBackup(): Promise<{ path: string | null }>
+  importBackup(): Promise<{ restored: boolean; recoveryPath: string | null }>
+  exportAggregatedCsv(): Promise<{ path: string | null }>
+  exportDiagnostics(): Promise<{ path: string | null }>
 }
 
 export const IPC = {
@@ -398,5 +417,14 @@ export const IPC = {
   showWindow: 'window:show',
   showWidget: 'widget:show',
   hideWidget: 'widget:hide',
-  setWidgetExpanded: 'widget:set-expanded'
+  setWidgetExpanded: 'widget:set-expanded',
+  completeOnboarding: 'onboarding:complete',
+  getPrivacyRules: 'privacy:get-rules',
+  addPrivacyRule: 'privacy:add-rule',
+  setPrivacyRuleEnabled: 'privacy:set-rule-enabled',
+  removePrivacyRule: 'privacy:remove-rule',
+  exportBackup: 'data:export-backup',
+  importBackup: 'data:import-backup',
+  exportAggregatedCsv: 'data:export-csv',
+  exportDiagnostics: 'data:export-diagnostics'
 } as const

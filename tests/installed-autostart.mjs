@@ -6,7 +6,7 @@ import { _electron as electron } from 'playwright-core'
 
 const root = resolve(import.meta.dirname, '..')
 const artifacts = join(root, 'tests', '.artifacts')
-const profile = join(artifacts, 'autostart-profile')
+const profile = join(artifacts, `autostart-profile-${Date.now()}`)
 const executable = join(process.env.LOCALAPPDATA, 'Programs', 'time-efficiency-assistant', '时间效率助手.exe')
 const runKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
 const valueName = 'electron.app.时间效率助手'
@@ -36,6 +36,8 @@ try {
   assert.ok(page, 'installed main window was not created')
   page.setDefaultTimeout(30_000)
   await page.getByText('正在真实记录', { exact: true }).waitFor()
+  const onboarding = page.getByRole('button', { name: '我已了解，开始使用' })
+  if (await onboarding.isVisible()) await onboarding.click()
   await page.getByRole('button', { name: '设置' }).click()
   const toggle = page.locator('.switch').first()
   await toggle.click()

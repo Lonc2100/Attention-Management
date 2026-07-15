@@ -129,10 +129,19 @@ try {
   await app.page.locator('.activity-timeline-card').waitFor()
   const activityRows = app.page.locator('.activity-list > button')
   if (await activityRows.count()) {
+    const displayedStarts = await activityRows.evaluateAll((rows) => rows.map((row) => row.querySelector('time')?.textContent?.split('–')[0] ?? ''))
+    const minutes = displayedStarts.map((value) => {
+      const [hour, minute] = value.split(':').map(Number)
+      return hour * 60 + minute
+    })
+    assert.deepEqual(minutes, [...minutes].sort((a, b) => b - a), 'activity list did not show newest entries first')
     await activityRows.first().click()
     await app.page.locator('.evidence-card').waitFor()
     assert.ok((await app.page.locator('.evidence-card').innerText()).length > 20, 'activity evidence drawer was empty')
-    const correctable = activityRows.filter({ has: app.page.locator('.source-badge:not(.source-afk)') }).first()
+    // The first row is deliberately the newest and can still be extending
+    // while this test runs.  Pick the oldest correctable entry for the
+    // correction workflow so its start/end identity is stable.
+    const correctable = activityRows.filter({ has: app.page.locator('.source-badge:not(.source-afk)') }).last()
     if (await correctable.count()) {
       await correctable.click()
       await app.page.locator('.correction-form select').selectOption('__new__')
@@ -202,7 +211,7 @@ try {
   await app.page.getByText('暂未设置排除规则。', { exact: true }).waitFor()
   record('Privacy controls', 'local derived-data exclusion rule could be added, toggled, and removed')
 
-  await app.page.getByRole('button', { name: /^早间计划/ }).click()
+  await app.page.getByRole('button', { name: /^早间计划/ }).first().click()
   const inputs = app.page.locator('.outcome-input input:last-child')
   await inputs.nth(0).fill('交付真实时间效率闭环')
   await inputs.nth(1).fill('验证 ActivityWatch 真实采集')
@@ -221,7 +230,7 @@ try {
   assert.ok((await priorityEvidence.innerText()).includes(linkedProjectLabel), 'dashboard did not render linked outcome evidence')
   record('Outcome evidence dashboard', 'absolute priority rendered with explicit project-only attention evidence')
 
-  await app.page.getByRole('button', { name: /^晚间复盘/ }).click()
+  await app.page.getByRole('button', { name: /^晚间复盘/ }).first().click()
   await app.page.locator('.review-outcomes select').nth(0).selectOption('done')
   await app.page.locator('.review-outcomes select').nth(1).selectOption('partial')
   await app.page.locator('textarea').fill('完成了真实采集、持久化和界面链路。')
@@ -237,7 +246,7 @@ try {
   assert.equal(await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'personal insights overflowed horizontally')
   record('Personal insights', '7/14-day range, evidence quality state, and daily facts rendered without a productivity score')
 
-  await app.page.getByRole('button', { name: /^晚间复盘/ }).click()
+  await app.page.getByRole('button', { name: /^晚间复盘/ }).first().click()
   await app.page.getByRole('button', { name: /调用 Codex 生成复盘|重新分析/ }).click()
   await app.page.locator('.ai-answer').waitFor({ timeout: 130_000 })
   const aiText = (await app.page.locator('.ai-answer').innerText()).trim()
@@ -278,12 +287,12 @@ try {
 await new Promise((resolveWait) => setTimeout(resolveWait, 1000))
 app = await launch()
 try {
-  await app.page.getByRole('button', { name: /^早间计划/ }).click()
+  await app.page.getByRole('button', { name: /^早间计划/ }).first().click()
   const persistedOutcome = app.page.locator('.outcome-input input:last-child').nth(0)
   await persistedOutcome.waitFor()
   assert.equal(await persistedOutcome.inputValue(), '交付真实时间效率闭环')
   assert.ok(await app.page.locator('.plan-outcome-card').nth(0).locator('.project-picker label.selected').count(), 'outcome project link did not survive restart')
-  await app.page.getByRole('button', { name: /^晚间复盘/ }).click()
+  await app.page.getByRole('button', { name: /^晚间复盘/ }).first().click()
   assert.equal(await app.page.locator('textarea').inputValue(), '完成了真实采集、持久化和界面链路。')
   record('Restart persistence', 'morning plan and evening review survived app restart')
 } finally {

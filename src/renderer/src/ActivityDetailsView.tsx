@@ -72,7 +72,7 @@ export function ActivityDetailsView({ initialDate, onActivity }: { initialDate: 
     return (details?.entries ?? []).filter((entry) => {
       if (filter !== 'all' && entry.attribution !== filter) return false
       return !query || `${entry.app} ${entry.title} ${entry.projectLabel}`.toLocaleLowerCase().includes(query)
-    })
+    }).sort((a, b) => Date.parse(b.end) - Date.parse(a.end) || b.id.localeCompare(a.id))
   }, [details, filter, search])
   const selected = details?.entries.find((entry) => entry.id === selectedId) ?? null
   const rangeStart = details?.rangeStart ? Date.parse(details.rangeStart) : 0

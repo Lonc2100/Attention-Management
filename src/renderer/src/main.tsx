@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import FloatingWidget from './FloatingWidget'
-import './styles.css'
+import './styles/index.css'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Renderer root element is missing')

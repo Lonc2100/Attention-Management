@@ -149,6 +149,63 @@ module.exports = {
 
 ---
 
+## Attention Management Theme Contract
+
+The renderer currently uses plain CSS rather than Tailwind. The enforceable theme source is `src/renderer/src/styles/tokens.css`, and `main.tsx` must import only `styles/index.css`.
+
+### Stable Import Order
+
+```css
+/* Correct: primitives and semantic aliases exist before any consumer. */
+@import './tokens.css';
+@import '../styles.css';
+@import './theme-adoption.css';
+```
+
+`theme-adoption.css` is the temporary migration boundary for the existing monolithic stylesheet. New page or component files should consume semantic tokens directly and be imported from `index.css`; do not add another renderer-level CSS import in TypeScript.
+
+### Semantic Token Rule
+
+Components consume role-based tokens such as `--surface-panel`, `--text-primary`, `--border-subtle`, and `--accent-primary`. Primitive tokens such as `--color-electric-lime` are defined once and should not be copied into component selectors.
+
+```css
+/* Wrong: duplicates a primitive and loses the theme contract. */
+.focus-card {
+  color: #beff50;
+  background: #14140f;
+}
+
+/* Correct: component intent remains stable if the palette changes. */
+.focus-card {
+  color: var(--accent-primary);
+  background: var(--surface-panel);
+}
+```
+
+Color is taxonomy, not decoration:
+
+| Meaning | Token |
+| --- | --- |
+| Primary/current attention | `--accent-primary` |
+| Confirmed project | `--accent-confirmed` |
+| Application activity | `--accent-application` |
+| Uncertain attribution | `--accent-unclassified` |
+| AFK/inactive | `--accent-afk` |
+| Review/AI/danger | `--accent-review`, `--accent-ai`, `--accent-danger` |
+
+Range-like design values must be represented by explicit `min`, `default`, and `max` tokens. Values such as `--section-gap: 80-120px` are invalid CSS and are forbidden.
+
+### Tests Required
+
+`tests/theme-tokens.test.ts` must verify:
+
+- token import order and the single renderer CSS entry point;
+- required primitive and semantic token presence;
+- absence of interval-like CSS values;
+- real semantic-token consumption by the adoption layer.
+
+---
+
 ## CSS Class Naming Convention (BEM)
 
 Use **BEM naming convention** to prevent class name conflicts:

@@ -1,0 +1,305 @@
+/*
+ * First adoption slice for the project theme contract.
+ * This compatibility layer sits after the legacy stylesheet so the new
+ * semantic tokens are already authoritative while page CSS is modularized.
+ */
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background: var(--surface-page-canvas);
+}
+
+body {
+  background:
+    radial-gradient(circle at 78% -24%, color-mix(in srgb, var(--accent-primary) 5%, transparent) 0, transparent 34%),
+    var(--surface-page-canvas);
+}
+
+aside {
+  border-right-color: var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-sidebar) 97%, transparent);
+}
+
+.brand-mark {
+  border-radius: var(--radius-inner);
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.brand small,
+.privacy-note,
+.muted,
+.metric p,
+.metric small {
+  color: var(--text-muted);
+}
+
+.privacy-note {
+  border-top-color: var(--border-subtle);
+}
+
+nav button {
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+nav button:hover,
+nav button.active {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+nav em,
+.eyebrow,
+.text-button,
+.dashboard-reminder strong {
+  color: var(--accent-primary);
+}
+
+h1 {
+  color: var(--text-primary);
+  font-size: var(--text-heading);
+  line-height: var(--leading-heading);
+  letter-spacing: var(--tracking-heading);
+  font-weight: var(--font-weight-medium);
+}
+
+h2 {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.eyebrow {
+  font-size: var(--text-eyebrow);
+  line-height: var(--leading-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+.metric,
+.panel,
+.activity-timeline-card,
+.activity-list-card,
+.rule-manager {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-cards);
+  background: var(--surface-panel);
+  box-shadow: none;
+}
+
+.primary,
+.secondary,
+.danger,
+.icon-button,
+.activity-view-switch button,
+.activity-filters button,
+.rule-actions button,
+.drawer-close {
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+}
+
+.primary {
+  border-color: var(--accent-primary);
+  border-radius: var(--radius-buttons);
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-weight: var(--font-weight-medium);
+}
+
+.primary:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent-primary) 88%, var(--color-surface-cream));
+}
+
+.secondary,
+.icon-button,
+.drawer-close,
+.rule-actions button {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.secondary {
+  border-radius: var(--radius-buttons);
+}
+
+.secondary:hover,
+.icon-button:hover,
+.drawer-close:hover,
+.rule-actions button:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.danger {
+  border-color: color-mix(in srgb, var(--accent-danger) 42%, transparent);
+  border-radius: var(--radius-buttons);
+  background: transparent;
+  color: var(--accent-danger);
+}
+
+.status.online {
+  border-color: color-mix(in srgb, var(--accent-primary) 34%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 7%, var(--surface-panel));
+  color: var(--accent-primary);
+}
+
+.bar,
+.widget-progress,
+.hour-bars > div > span {
+  background: var(--border-subtle);
+}
+
+.bar i,
+.widget-progress i,
+.hour-bars i {
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-confirmed));
+  box-shadow: none;
+}
+
+.header-focus,
+.focus-strip.focus-confirmed,
+.context-banner.live {
+  border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-subtle));
+  background: linear-gradient(110deg, color-mix(in srgb, var(--accent-primary) 7%, var(--surface-panel)), var(--surface-panel));
+  box-shadow: none;
+}
+
+.header-focus__dot,
+.priority-dot,
+.focus-strip.focus-confirmed .focus-glyph,
+.pulse {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+}
+
+.header-focus__dot,
+.priority-dot {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent-primary) 48%, transparent);
+}
+
+.header-focus__timer strong,
+.focus-copy p,
+.auto-chip,
+.coverage,
+.chip,
+.result-evidence__metric strong {
+  color: var(--accent-primary);
+}
+
+.focus-strip.focus-recent,
+.header-focus.focus-recent,
+.header-focus.focus-unclassified {
+  border-color: color-mix(in srgb, var(--accent-unclassified) 38%, var(--border-subtle));
+}
+
+.focus-strip.focus-afk,
+.focus-strip.focus-paused,
+.focus-strip.focus-disconnected {
+  color: var(--accent-afk);
+}
+
+.attention-tooltip,
+.evidence-drawer,
+.evidence-card,
+.rule-list article,
+.onboarding-card {
+  border-color: var(--border-subtle);
+  background: var(--surface-panel-raised);
+  box-shadow: none;
+}
+
+.activity-date-nav input,
+.activity-list-tools input,
+.correction-form input,
+.correction-form select,
+.rule-editor select,
+.privacy-form input,
+.settings input,
+.settings select,
+.field input,
+.field textarea,
+.review-outcomes select {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-inputs);
+  background: var(--surface-input);
+  color: var(--text-primary);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.activity-list > button {
+  border-top-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.activity-list > button:hover {
+  background: var(--surface-hover);
+}
+
+.activity-list > button.selected {
+  background: var(--surface-selected);
+  box-shadow: inset 3px 0 var(--accent-primary);
+}
+
+.source-badge {
+  border-color: color-mix(in srgb, var(--accent-confirmed) 28%, var(--border-subtle));
+  color: var(--accent-confirmed);
+  background: transparent;
+}
+
+.source-badge.source-application {
+  border-color: color-mix(in srgb, var(--accent-application) 32%, var(--border-subtle));
+  color: var(--accent-application);
+}
+
+.source-badge.source-unclassified {
+  border-color: color-mix(in srgb, var(--accent-unclassified) 32%, var(--border-subtle));
+  color: var(--accent-unclassified);
+}
+
+.source-badge.source-afk {
+  border-color: var(--border-subtle);
+  color: var(--accent-afk);
+}
+
+.widget-card {
+  border-color: var(--border-subtle);
+  background: var(--surface-panel);
+  box-shadow: none;
+}
+
+.widget-dot i,
+.widget-buttons button:first-child {
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border-subtle));
+}
+
+.widget-dot i {
+  background: var(--accent-primary);
+}
+
+.widget-timer time,
+.widget-progress-row strong {
+  color: var(--accent-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

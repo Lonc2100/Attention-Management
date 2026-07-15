@@ -182,16 +182,17 @@ Components consume role-based tokens such as `--surface-panel`, `--text-primary`
 }
 ```
 
-Color is taxonomy, not decoration:
+Color is taxonomy, not decoration. Category color is limited to five fixed disciplines:
 
-| Meaning | Token |
-| --- | --- |
-| Primary/current attention | `--accent-primary` |
-| Confirmed project | `--accent-confirmed` |
-| Application activity | `--accent-application` |
-| Uncertain attribution | `--accent-unclassified` |
-| AFK/inactive | `--accent-afk` |
-| Review/AI/danger | `--accent-review`, `--accent-ai`, `--accent-danger` |
+| Discipline | Product meaning | Canonical token |
+| --- | --- | --- |
+| Green | Attention, current focus, confirmed project | `--discipline-green` |
+| Orange | Unclassified or uncertain attribution | `--discipline-orange` |
+| Pink | Review and reflection | `--discipline-pink` |
+| Violet | AI and Codex-generated assistance | `--discipline-violet` |
+| Blue | Application and system data | `--discipline-blue` |
+
+AFK and danger are neutral/status states, not additional category disciplines. Do not use a discipline color for a second unrelated meaning and do not add a sixth category color.
 
 Range-like design values must be represented by explicit `min`, `default`, and `max` tokens. Values such as `--section-gap: 80-120px` are invalid CSS and are forbidden.
 
@@ -246,6 +247,29 @@ Use finite props for variants, density, and tone. Adding a new visual choice req
 ```
 
 The component stylesheet lives at `styles/components/page-modules.css`. It must contain no raw color literals and must consume semantic tokens. `tests/page-modules.test.tsx` verifies semantic markup, finite class variants, native segmented-control buttons, token-only CSS, and pilot-page adoption.
+
+### Editorial Core, Adapted for Desktop
+
+The visual reference is an editorial marketing system. Preserve its character without copying its page scale:
+
+- Use the Mori-first `--font-mori` stack. PP Mori is not bundled; MiSans and Microsoft YaHei UI provide explicit Chinese coverage until a licensed asset is supplied.
+- Governed component text has a 14px minimum, a 16px resting rhythm, 18px pill controls, and 23px section titles.
+- Hero module titles use the finite `40px–60px` token range. The reference site's 224px viewport-bleed headline is forbidden inside the desktop application.
+- `ModuleHeader` owns the recurring visible `{ label }` annotation and its five finite discipline colors.
+- `PillButton` owns outlined actions: `ghost` is a cream 1px outline; `primary` is a green-to-light-green 1.5px gradient outline. Neither variant uses a solid accent fill.
+- `ModuleDivider` owns the full-width 1px hairline between feature blocks.
+- Governed cards and controls use no drop shadows. Depth comes from surface steps and restrained gradient washes.
+- The cream-on-off-black pairing remains continuous; reversed light cards require an explicit future callout variant.
+
+```tsx
+<ModuleHeader
+  discipline="blue"
+  eyebrow="DAILY EVIDENCE"
+  title="逐日证据"
+/>
+
+<PillButton variant="primary">开始专注</PillButton>
+```
 
 ---
 

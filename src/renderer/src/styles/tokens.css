@@ -40,22 +40,38 @@
   --border-subtle: var(--color-deep-charcoal);
   --border-strong: var(--color-surface-25);
 
+  /* Five fixed product disciplines. Category colors must not escape this set. */
+  --discipline-green: var(--color-electric-lime);
+  --discipline-orange: var(--color-orangey);
+  --discipline-pink: var(--color-pink);
+  --discipline-violet: var(--color-lilac);
+  --discipline-blue: var(--color-blue);
+
   /* Color is taxonomy, not decoration. */
-  --accent-primary: var(--color-electric-lime);
+  --accent-primary: var(--discipline-green);
   --accent-confirmed: var(--color-light-green);
-  --accent-application: var(--color-blue);
-  --accent-unclassified: var(--color-orangey);
-  --accent-review: var(--color-pink);
-  --accent-ai: var(--color-lilac);
+  --accent-application: var(--discipline-blue);
+  --accent-unclassified: var(--discipline-orange);
+  --accent-review: var(--discipline-pink);
+  --accent-ai: var(--discipline-violet);
   --accent-afk: var(--color-graphite);
   --accent-warning: var(--color-orangey);
   --accent-danger: var(--color-danger);
 
-  /* Typography. OTSono is optional; the stack remains usable without it. */
-  --font-otsono: 'OTSono', 'Inter Tight', 'Segoe UI Variable', 'Microsoft YaHei UI', system-ui, sans-serif;
-  --font-sans: var(--font-otsono);
+  /* PP Mori is not bundled. MiSans carries Chinese text until a licensed asset is supplied. */
+  --font-mori: 'PP Mori', 'Mori', 'MiSans', 'Microsoft YaHei UI', sans-serif;
+  --font-sans: var(--font-mori);
   --font-weight-regular: 400;
   --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --text-ui-label: 14px;
+  --text-ui-body: 16px;
+  --text-ui-control: 18px;
+  --text-ui-title: 23px;
+  --text-ui-hero: clamp(40px, 4vw, 60px);
+  --leading-ui-rest: 1.15;
+  --leading-ui-hero: 0.94;
+  --tracking-ui-hero: -0.02em;
   --text-eyebrow: 10px;
   --leading-eyebrow: 1.4;
   --tracking-eyebrow: 0.1em;

@@ -70,13 +70,13 @@ export function InsightsView() {
 
       <section className="insights-grid">
         <PageModule as="article" variant="data" density="compact">
-          <ModuleHeader eyebrow="HIGH-QUALITY HOURS" title="重要成果更常推进的时段" />
+          <ModuleHeader discipline="green" eyebrow="HIGH-QUALITY HOURS" title="重要成果更常推进的时段" />
           {data.candidateHours.length ? <div className="hour-bars">{data.candidateHours.map((hour) => <div key={hour.hour}><time>{String(hour.hour).padStart(2, '0')}:00–{String((hour.hour + 1) % 24).padStart(2, '0')}:00</time><span><i style={{ width: `${Math.max(8, (hour.seconds / maxHour) * 100)}%` }} /></span><strong>{duration(hour.seconds)}</strong><small>{hour.qualifyingDays} 天出现</small></div>)}</div> : <div className="insights-empty"><strong>先积累 3 个高质量复盘日</strong><p>当天绝对优先成果完成、主观评分不低于 4，且有已关联项目注意力，才进入候选样本。</p></div>}
           <div className="insight-notes">{data.observations.map((note) => <p key={note}>· {note}</p>)}</div>
         </PageModule>
 
         <PageModule as="article" variant="data" density="compact">
-          <ModuleHeader eyebrow="DAILY EVIDENCE" title="逐日证据" />
+          <ModuleHeader discipline="blue" eyebrow="DAILY EVIDENCE" title="逐日证据" />
           <div className="insight-day-list"><div className="insight-day-head"><span>日期</span><span>电脑活跃</span><span>优先成果注意力</span><span>结果 / 评分</span><span>切换</span></div>{[...data.days].reverse().map((day) => <div key={day.date} className={!day.connected ? 'muted-day' : ''}><strong>{dayLabel(day.date)}</strong><span>{day.connected ? duration(day.activeSeconds) : '无采集'}</span><span>{duration(day.priorityAttentionSeconds)}</span><span>{statusLabel(day.priorityStatus)}{day.subjectiveScore ? ` · ${day.subjectiveScore}/5` : ''}</span><span>{day.contextSwitches}</span></div>)}</div>
         </PageModule>
       </section>

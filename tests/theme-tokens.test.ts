@@ -36,6 +36,18 @@ describe('renderer theme contract', () => {
       '--accent-application',
       '--accent-unclassified',
       '--accent-afk',
+      '--discipline-green',
+      '--discipline-orange',
+      '--discipline-pink',
+      '--discipline-violet',
+      '--discipline-blue',
+      '--font-mori',
+      '--font-weight-semibold',
+      '--text-ui-label',
+      '--text-ui-body',
+      '--text-ui-control',
+      '--text-ui-title',
+      '--text-ui-hero',
       '--section-gap-default',
       '--card-padding-default',
       '--radius-cards',
@@ -44,6 +56,17 @@ describe('renderer theme contract', () => {
 
     for (const token of requiredTokens) expect(tokens).toContain(token)
     expect(tokens).not.toMatch(/:\s*\d+\s*-\s*\d+px/)
+    expect(tokens).toContain("--font-mori: 'PP Mori', 'Mori', 'MiSans', 'Microsoft YaHei UI', sans-serif")
+    expect(tokens).not.toMatch(/--font-mori:[^;]*(?:Inter|Roboto|system-ui)/)
+    expect(tokens).toContain('--text-ui-label: 14px')
+    expect(tokens).toContain('--text-ui-body: 16px')
+    expect(tokens).toContain('--text-ui-control: 18px')
+    expect(tokens).toContain('--text-ui-title: 23px')
+    expect(tokens).toContain('--discipline-green: var(--color-electric-lime)')
+    expect(tokens).toContain('--discipline-orange: var(--color-orangey)')
+    expect(tokens).toContain('--discipline-pink: var(--color-pink)')
+    expect(tokens).toContain('--discipline-violet: var(--color-lilac)')
+    expect(tokens).toContain('--discipline-blue: var(--color-blue)')
   })
 
   it('uses semantic tokens in the global application styles', () => {

@@ -38,3 +38,36 @@ Implemented foreground and AFK gated Codex root-task attribution, conservative p
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Release v0.3.1 compact linked dashboard
+
+**Date**: 2026-07-15
+**Task**: Release v0.3.1 compact linked dashboard
+**Branch**: `main`
+
+### Summary
+
+Compressed the Today first viewport, added linked donut/legend/timeline tooltips, refined the floating widget, validated and installed v0.3.1.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b460a22` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

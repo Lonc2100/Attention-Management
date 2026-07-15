@@ -104,3 +104,36 @@ Established the renderer CSS token layer, semantic theme adoption, contract test
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Component governed page modules
+
+**Date**: 2026-07-16
+**Task**: Component governed page modules
+**Branch**: `main`
+
+### Summary
+
+Established a finite renderer page-module API, migrated Personal Insights as the pilot, added token-only component styling and contract tests, stabilized E2E chart selection and isolated opt-in Codex CLI integration.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `881d51a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -68,15 +68,48 @@ try {
     await app.page.waitForTimeout(200)
     const noHorizontalOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     assert.equal(noHorizontalOverflow, true, `dashboard overflowed horizontally at ${width}x${height}`)
+    const timelineBox = await app.page.getByTestId('attention-timeline').boundingBox()
+    assert.ok(timelineBox && timelineBox.y + timelineBox.height <= height, `timeline was not fully visible at ${width}x${height}`)
+    await app.page.mouse.move(350, 40)
     await app.page.screenshot({ path: join(artifacts, `e2e-attention-dashboard-${width}x${height}.png`), fullPage: false, timeout: 30_000 })
+  }
+  const donutTarget = app.page.locator('[data-chart-target="donut"]').first()
+  if (await donutTarget.count()) {
+    const donutBox = await donutTarget.boundingBox()
+    assert.ok(donutBox, 'donut target did not expose a visible hit area')
+    const donutSvgBox = await app.page.locator('svg[aria-label="今日注意力分布"]').boundingBox()
+    const dashArray = (await donutTarget.getAttribute('stroke-dasharray'))?.split(' ').map(Number)
+    assert.ok(donutSvgBox && dashArray && dashArray.length === 2, 'donut geometry was unavailable')
+    const arcFraction = dashArray[0] / dashArray[1]
+    const angle = -Math.PI / 2 + arcFraction * Math.PI
+    const radius = Math.min(donutSvgBox.width, donutSvgBox.height) * 70 / 180
+    await app.page.mouse.move(donutSvgBox.x + donutSvgBox.width / 2 + Math.cos(angle) * radius, donutSvgBox.y + donutSvgBox.height / 2 + Math.sin(angle) * radius)
+    await app.page.getByTestId('attention-tooltip').waitFor()
+    const activeKey = await donutTarget.getAttribute('data-category-key')
+    assert.ok(activeKey, 'donut target did not expose a category key')
+    assert.ok(await app.page.locator(`[data-category-key="${activeKey}"][data-linked-active="true"]`).count() >= 2, 'donut hover did not link chart elements')
+    const timelineSegments = app.page.locator('.timeline-segment')
+    let widestSegment = null
+    for (let index = 0; index < await timelineSegments.count(); index += 1) {
+      const candidate = timelineSegments.nth(index)
+      const box = await candidate.boundingBox()
+      if (box && (!widestSegment || box.width > widestSegment.box.width)) widestSegment = { candidate, box }
+    }
+    assert.ok(widestSegment, 'timeline did not expose an interactive segment')
+    await app.page.mouse.move(widestSegment.box.x + widestSegment.box.width / 2, widestSegment.box.y + widestSegment.box.height / 2)
+    await app.page.getByTestId('attention-tooltip').waitFor()
+    const timelineKey = await widestSegment.candidate.getAttribute('data-category-key')
+    assert.ok(timelineKey && await app.page.locator(`[data-category-key="${timelineKey}"][data-linked-active="true"]`).count() >= 2, 'timeline hover did not link chart elements')
+  } else {
+    assert.fail('interactive donut targets were not rendered')
   }
   record('Attention dashboard', 'unified attention overview, chronological timeline and truthful focus state rendered')
 
   await app.widget.getByTestId('floating-widget').waitFor()
-  if (!await app.widget.getByText('今日电脑活跃', { exact: true }).isVisible()) {
+  if (!await app.widget.getByText('电脑活跃', { exact: true }).isVisible()) {
     await app.widget.getByRole('button', { name: '展开悬浮窗' }).click()
   }
-  await app.widget.getByText('今日电脑活跃', { exact: true }).waitFor()
+  await app.widget.getByText('电脑活跃', { exact: true }).waitFor()
   await app.widget.screenshot({ path: join(artifacts, 'e2e-widget-expanded.png'), timeout: 30_000 })
   record('Floating widget', 'widget rendered independently and expanded without opening the main window')
   await app.widget.getByRole('button', { name: '隐藏' }).click()

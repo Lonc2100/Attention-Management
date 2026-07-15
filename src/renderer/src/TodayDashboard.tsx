@@ -1,11 +1,27 @@
 import { useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { FocusEvent, MouseEvent } from 'react'
 import type { ActivitySummary, BootstrapData, ProjectUsage, TimelineSlice } from '../../shared/contracts'
 
 const APP_COLORS = ['#6e8ff8', '#aa7df2', '#f09a62', '#52c7d9', '#ef6f9b']
 const PROJECT_COLORS = ['#72e1b2', '#54cfa0', '#91ebc5', '#3db789', '#a8f0d2']
 const AFK_COLOR = '#3b4652'
 const PENDING_COLOR = '#c69a52'
+const DONUT_RADIUS = 70
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS
+
+type AttentionKind = TimelineSlice['kind']
+type TooltipState = {
+  categoryKey: string
+  label: string
+  kind: AttentionKind
+  seconds: number
+  percent: number
+  percentLabel: string
+  start?: string
+  end?: string
+  x: number
+  y: number
+}
 
 function duration(seconds: number): string {
   const minutes = Math.round(seconds / 60)
@@ -34,17 +50,26 @@ function colorFor(kind: TimelineSlice['kind'], key: string, index: number): stri
   return APP_COLORS[hash % APP_COLORS.length]
 }
 
-function statusCopy(status: ActivitySummary['focus']['status']): string {
+function categoryKey(slice: Pick<TimelineSlice, 'kind' | 'key'>): string {
+  return `${slice.kind}:${slice.key}`
+}
+
+function kindLabel(kind: AttentionKind): string {
   return {
-    confirmed: '已确认项目',
-    recent: '最近确认 · 当前归属未确认',
-    unclassified: 'Codex 待分类',
-    application: '当前应用',
-    afk: '离开电脑',
-    idle: '等待活动',
-    paused: '记录已暂停',
-    disconnected: '采集服务未连接'
-  }[status]
+    project: 'Codex 项目',
+    'codex-unclassified': 'Codex · 待分类',
+    application: '应用',
+    afk: '离开电脑'
+  }[kind]
+}
+
+function tooltipPosition(clientX: number, clientY: number): { x: number; y: number } {
+  const width = 244
+  const height = 114
+  return {
+    x: Math.max(12, Math.min(clientX + 14, window.innerWidth - width - 12)),
+    y: Math.max(12, Math.min(clientY + 14, window.innerHeight - height - 12))
+  }
 }
 
 export function TodayDashboard({ data, busy, onView, run, onActivity }: {
@@ -57,19 +82,45 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
   const { activity } = data
   const [editing, setEditing] = useState<ProjectUsage | null>(null)
   const [alias, setAlias] = useState('')
+  const [activeKey, setActiveKey] = useState<string | null>(null)
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const total = Math.max(activity.activeSeconds, 1)
   const sliceColors = useMemo(() => new Map(activity.attentionSlices.map((slice, index) => [
     `${slice.kind}:${slice.key}`,
     colorFor(slice.kind, slice.key, index)
   ])), [activity.attentionSlices])
-  let turn = 0
-  const gradient = activity.attentionSlices.length
-    ? `conic-gradient(${activity.attentionSlices.map((slice) => {
-        const start = turn
-        turn += (slice.seconds / total) * 360
-        return `${sliceColors.get(`${slice.kind}:${slice.key}`)} ${start}deg ${turn}deg`
-      }).join(',')})`
-    : 'conic-gradient(#26313a 0deg 360deg)'
+  const showTooltip = (
+    slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>,
+    clientX: number,
+    clientY: number,
+    options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }
+  ) => {
+    const key = categoryKey(slice)
+    const position = tooltipPosition(clientX, clientY)
+    setActiveKey(key)
+    setTooltip({
+      categoryKey: key,
+      label: slice.label,
+      kind: slice.kind,
+      seconds: slice.seconds,
+      percent: Math.round((slice.seconds / Math.max(options?.denominator ?? total, 1)) * 100),
+      percentLabel: options?.percentLabel ?? '有效时间占比',
+      start: options?.start,
+      end: options?.end,
+      ...position
+    })
+  }
+  const showFromPointer = (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: MouseEvent<HTMLElement | SVGElement>, options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }) => {
+    showTooltip(slice, event.clientX, event.clientY, options)
+  }
+  const showFromFocus = (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: FocusEvent<HTMLElement | SVGElement>, options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    showTooltip(slice, bounds.left + bounds.width / 2, bounds.bottom, options)
+  }
+  const clearHover = () => {
+    setActiveKey(null)
+    setTooltip(null)
+  }
 
   const startEdit = (project: ProjectUsage) => {
     setEditing(project)
@@ -82,23 +133,16 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
   })
 
   return <div className="dashboard">
-    {(data.reminders.morningDue || data.reminders.eveningDue) && <button className="dashboard-reminder" onClick={() => onView(data.reminders.eveningDue ? 'review' : 'plan')}>
-      <span>{data.reminders.eveningDue ? '晚间复盘待完成' : '早间计划待确认'}</span>
-      <strong>现在完成 →</strong>
-    </button>}
-
-    <section className={`focus-strip focus-${activity.focus.status}`} data-testid="focus-strip">
-      <div className="focus-glyph">{activity.focus.status === 'afk' ? '—' : 'C'}</div>
-      <div className="focus-copy">
-        <p>{statusCopy(activity.focus.status)}</p>
-        <h2>{activity.focus.label}</h2>
-        <small>{activity.focus.status === 'recent'
-          ? '你仍在操作电脑，但当前应用的项目归属没有可信信号，因此不继续计入该项目。'
-          : activity.focus.status === 'confirmed'
-            ? '由当前 Codex 根任务自动确认，无需手动切换。'
-            : activity.focus.app ? `${activity.focus.app} · 仅计算前台且非 AFK 的时间` : '状态来自本机 ActivityWatch 与上下文识别。'}</small>
+    <section className="dashboard-quick-row" aria-label="今日摘要">
+      {(data.reminders.morningDue || data.reminders.eveningDue) && <button className="dashboard-reminder" onClick={() => onView(data.reminders.eveningDue ? 'review' : 'plan')}>
+        <span>{data.reminders.eveningDue ? '晚间复盘待完成' : '早间计划待确认'}</span>
+        <strong>现在完成 →</strong>
+      </button>}
+      <div className="compact-metrics">
+        <article><span>电脑活跃</span><strong>{duration(activity.activeSeconds)}</strong><small>排除 {duration(activity.afkSeconds)} AFK</small></article>
+        <article><span>Codex 注意力</span><strong>{duration(activity.codexActiveSeconds)}</strong><small>前台且非 AFK</small></article>
+        <article><span>项目覆盖</span><strong>{activity.codexCoveragePercent}%</strong><small>{activity.codexUnclassifiedSeconds ? `${duration(activity.codexUnclassifiedSeconds)} 待分类` : '全部已归属'}</small></article>
       </div>
-      <div className="focus-timer"><span>连续专注</span><strong>{compactDuration(activity.focus.continuousSeconds)}</strong></div>
     </section>
 
     <section className="dashboard-top">
@@ -106,29 +150,21 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
         <div className="panel-head compact-head"><div><p className="eyebrow">TODAY'S ATTENTION</p><h2>今天的注意力去了哪里</h2></div><button className="text-button" disabled={busy === 'refresh'} onClick={() => run('refresh', async () => onActivity(await window.timeEfficiency.refreshActivity()))}>{busy === 'refresh' ? '刷新中…' : '刷新'}</button></div>
         <div className="attention-layout">
           <div className="donut-wrap">
-            <div className="attention-donut" style={{ '--donut': gradient } as CSSProperties}>
-              <div><strong>{duration(activity.activeSeconds)}</strong><span>有效电脑时间</span></div>
-            </div>
+            <AttentionDonut activity={activity} colors={sliceColors} activeKey={activeKey} onPointer={showFromPointer} onFocus={showFromFocus} onLeave={clearHover} />
             <p>统一分母：排除 AFK 后的全部前台注意力</p>
           </div>
           <div className="attention-legend">
-            {activity.attentionSlices.length ? activity.attentionSlices.slice(0, 8).map((slice) => <div key={`${slice.kind}:${slice.key}`}>
-              <i style={{ background: sliceColors.get(`${slice.kind}:${slice.key}`) }} />
+            {activity.attentionSlices.length ? activity.attentionSlices.slice(0, 8).map((slice) => <button key={categoryKey(slice)} className={activeKey && activeKey !== categoryKey(slice) ? 'is-dimmed' : activeKey === categoryKey(slice) ? 'is-active' : ''} data-category-key={categoryKey(slice)} data-linked-active={activeKey === categoryKey(slice) ? 'true' : 'false'} onMouseEnter={(event) => showFromPointer(slice, event)} onMouseMove={(event) => showFromPointer(slice, event)} onMouseLeave={clearHover} onFocus={(event) => showFromFocus(slice, event)} onBlur={clearHover}>
+              <i style={{ background: sliceColors.get(categoryKey(slice)) }} />
               <span><strong>{slice.label}</strong><small>{slice.kind === 'project' ? 'Codex 项目' : slice.kind === 'codex-unclassified' ? 'Codex · 待分类' : '应用'}</small></span>
               <em>{duration(slice.seconds)}<small>{Math.round((slice.seconds / total) * 100)}%</small></em>
-            </div>) : <div className="dashboard-empty">正在等待第一批窗口事件。</div>}
+            </button>) : <div className="dashboard-empty">正在等待第一批窗口事件。</div>}
           </div>
         </div>
       </article>
-
-      <div className="compact-metrics">
-        <article><span>电脑活跃</span><strong>{duration(activity.activeSeconds)}</strong><small>已排除 {duration(activity.afkSeconds)} AFK</small></article>
-        <article><span>Codex 注意力</span><strong>{duration(activity.codexActiveSeconds)}</strong><small>前台且非 AFK</small></article>
-        <article><span>项目覆盖</span><strong>{activity.codexCoveragePercent}%</strong><small>{activity.codexUnclassifiedSeconds ? `${duration(activity.codexUnclassifiedSeconds)} 待分类` : '没有待分类时间'}</small></article>
-      </div>
     </section>
 
-    <Timeline activity={activity} colors={sliceColors} />
+    <Timeline activity={activity} colors={sliceColors} activeKey={activeKey} onPointer={showFromPointer} onFocus={showFromFocus} onLeave={clearHover} />
 
     <section className="dashboard-details">
       <article className="panel detail-panel">
@@ -152,10 +188,56 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
     </section>
 
     {!activity.connected && <section className="dashboard-disconnected"><span>ActivityWatch 未连接：{activity.error}</span><button onClick={() => onView('diagnostics')}>查看诊断</button></section>}
+    {tooltip && <AttentionTooltip tooltip={tooltip} />}
   </div>
 }
 
-function Timeline({ activity, colors }: { activity: ActivitySummary; colors: Map<string, string> }) {
+function AttentionDonut({ activity, colors, activeKey, onPointer, onFocus, onLeave }: {
+  activity: ActivitySummary
+  colors: Map<string, string>
+  activeKey: string | null
+  onPointer: (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: MouseEvent<HTMLElement | SVGElement>) => void
+  onFocus: (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: FocusEvent<HTMLElement | SVGElement>) => void
+  onLeave: () => void
+}) {
+  const total = Math.max(activity.activeSeconds, 1)
+  let offset = 0
+  return <div className="attention-donut">
+    <svg viewBox="0 0 180 180" aria-label="今日注意力分布">
+      <circle className="attention-donut__track" cx="90" cy="90" r={DONUT_RADIUS} />
+      {activity.attentionSlices.map((slice, index) => {
+        const key = categoryKey(slice)
+        const length = (slice.seconds / total) * DONUT_CIRCUMFERENCE
+        const dashOffset = -offset
+        offset += length
+        const dimmed = Boolean(activeKey && activeKey !== key)
+        return <g key={key} className={`attention-donut__segment ${dimmed ? 'is-dimmed' : ''} ${activeKey === key ? 'is-active' : ''}`} tabIndex={0} role="button" aria-label={`${slice.label}，${duration(slice.seconds)}，${Math.round((slice.seconds / total) * 100)}%`} onMouseEnter={(event) => onPointer(slice, event)} onMouseMove={(event) => onPointer(slice, event)} onMouseLeave={onLeave} onFocus={(event) => onFocus(slice, event)} onBlur={onLeave}>
+          <circle className="attention-donut__arc" cx="90" cy="90" r={DONUT_RADIUS} stroke={colors.get(key) ?? colorFor(slice.kind, slice.key, index)} strokeDasharray={`${Math.max(length - 2, .8)} ${DONUT_CIRCUMFERENCE}`} strokeDashoffset={dashOffset} />
+          <circle className="attention-donut__hit" cx="90" cy="90" r={DONUT_RADIUS} strokeDasharray={`${Math.max(length, 1.8)} ${DONUT_CIRCUMFERENCE}`} strokeDashoffset={dashOffset} data-chart-target="donut" data-category-key={key} data-linked-active={activeKey === key ? 'true' : 'false'} />
+        </g>
+      })}
+    </svg>
+    <div className="attention-donut__center"><strong>{duration(activity.activeSeconds)}</strong><span>有效电脑时间</span></div>
+  </div>
+}
+
+function AttentionTooltip({ tooltip }: { tooltip: TooltipState }) {
+  return <div className="attention-tooltip" data-testid="attention-tooltip" style={{ left: tooltip.x, top: tooltip.y }} role="tooltip">
+    <div><i className={`attention-tooltip__icon kind-${tooltip.kind}`} /><span>{kindLabel(tooltip.kind)}</span></div>
+    <strong title={tooltip.label}>{tooltip.label}</strong>
+    {tooltip.start && tooltip.end && <small>{clock(tooltip.start)}–{clock(tooltip.end)}</small>}
+    <p><span>{duration(tooltip.seconds)}</span><em>{tooltip.percentLabel} {tooltip.percent}%</em></p>
+  </div>
+}
+
+function Timeline({ activity, colors, activeKey, onPointer, onFocus, onLeave }: {
+  activity: ActivitySummary
+  colors: Map<string, string>
+  activeKey: string | null
+  onPointer: (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: MouseEvent<HTMLElement | SVGElement>, options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }) => void
+  onFocus: (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: FocusEvent<HTMLElement | SVGElement>, options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }) => void
+  onLeave: () => void
+}) {
   const ordered = [...activity.timeline].sort((a, b) => a.start.localeCompare(b.start))
   if (!ordered.length) return <section className="panel timeline-panel" data-testid="attention-timeline"><div className="panel-head compact-head"><div><p className="eyebrow">CHRONOLOGICAL</p><h2>今天的时间轴</h2></div></div><p className="dashboard-empty">采集开始后，这里会按发生顺序显示项目、应用和离开时段。</p></section>
   const rangeStart = new Date(ordered[0].start).getTime()
@@ -169,12 +251,14 @@ function Timeline({ activity, colors }: { activity: ActivitySummary; colors: Map
         const left = ((new Date(slice.start).getTime() - rangeStart) / range) * 100
         const width = ((new Date(slice.end).getTime() - new Date(slice.start).getTime()) / range) * 100
         const color = slice.kind === 'afk' ? AFK_COLOR : colors.get(`${slice.kind}:${slice.key}`) ?? colorFor(slice.kind, slice.key, index)
-        return <div key={slice.id} className={`timeline-segment ${slice.kind}`} style={{ left: `${left}%`, width: `${Math.max(width, .35)}%`, background: color }} title={`${clock(slice.start)}–${clock(slice.end)} · ${slice.label} · ${duration(slice.seconds)}`}>
+        const key = categoryKey(slice)
+        const options = { start: slice.start, end: slice.end, denominator: range / 1000, percentLabel: '记录区间占比' }
+        return <button key={slice.id} className={`timeline-segment ${slice.kind} ${activeKey && activeKey !== key ? 'is-dimmed' : ''} ${activeKey === key ? 'is-active' : ''}`} style={{ left: `${left}%`, width: `${Math.max(width, .35)}%`, background: color }} data-category-key={key} data-linked-active={activeKey === key ? 'true' : 'false'} aria-label={`${clock(slice.start)}到${clock(slice.end)}，${slice.label}，${duration(slice.seconds)}`} onMouseEnter={(event) => onPointer(slice, event, options)} onMouseMove={(event) => onPointer(slice, event, options)} onMouseLeave={onLeave} onFocus={(event) => onFocus(slice, event, options)} onBlur={onLeave}>
           {width > 8 && <span>{slice.kind === 'project' ? 'C · ' : ''}{slice.label}</span>}
-        </div>
+        </button>
       })}
     </div>
     <div className="timeline-ticks">{ticks.map((tick) => <span key={tick}>{clock(tick)}</span>)}</div>
-    <div className="timeline-events">{ordered.slice(-8).map((slice, index) => <div key={`${slice.id}:event`}><i style={{ background: slice.kind === 'afk' ? AFK_COLOR : colors.get(`${slice.kind}:${slice.key}`) ?? colorFor(slice.kind, slice.key, index) }} /><span>{clock(slice.start)}–{clock(slice.end)}</span><strong>{slice.kind === 'project' ? `Codex · ${slice.label}` : slice.label}</strong><em>{compactDuration(slice.seconds)}</em></div>)}</div>
+    <div className="timeline-events">{ordered.slice(-4).map((slice, index) => <div key={`${slice.id}:event`}><i style={{ background: slice.kind === 'afk' ? AFK_COLOR : colors.get(categoryKey(slice)) ?? colorFor(slice.kind, slice.key, index) }} /><span>{clock(slice.start)}–{clock(slice.end)}</span><strong title={slice.label}>{slice.kind === 'project' ? `Codex · ${slice.label}` : slice.label}</strong><em>{compactDuration(slice.seconds)}</em></div>)}</div>
   </section>
 }

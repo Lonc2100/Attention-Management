@@ -477,3 +477,14 @@ function Button({ isLoading, children, ...props }: ButtonProps) {
 ---
 
 **Language**: All documentation must be written in **English**.
+
+## Linked Visualization Interaction
+
+When multiple visualizations represent the same category (for example a donut, legend, and timeline), use one stable category key across every surface.
+
+- Keep one shared active key and tooltip contract rather than independent hover states.
+- Hover and keyboard focus must produce the same linked highlight and detail content.
+- Enlarge hit areas without changing the visible data geometry, especially for narrow timeline events and small donut slices.
+- Use a custom viewport-clamped tooltip for consistent labels, duration, percentages, and start/end times.
+- Limit motion to opacity and transform transitions, avoid layout shifts, and honor `prefers-reduced-motion`.
+- Add E2E coverage that proves both the aggregate visualization and chronological visualization activate at least one matching peer.

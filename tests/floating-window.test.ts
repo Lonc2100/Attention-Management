@@ -17,7 +17,7 @@ describe('floating widget placement', () => {
     expect(widgetBounds(displays, {
       widgetExpanded: true,
       widgetPosition: { x: 4000, y: -100, displayId: '2' }
-    })).toEqual({ x: 2864, y: 0, width: 336, height: 278 })
+    })).toEqual({ x: 2878, y: 0, width: 322, height: 214 })
   })
 
   it('falls back to the primary display when the saved display disappeared', () => {

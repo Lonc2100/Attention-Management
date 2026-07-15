@@ -3,7 +3,7 @@ import type { Settings } from '../shared/contracts'
 
 export const WIDGET_SIZE = {
   collapsed: { width: 316, height: 68 },
-  expanded: { width: 336, height: 278 }
+  expanded: { width: 322, height: 214 }
 } as const
 
 export interface DisplayArea {

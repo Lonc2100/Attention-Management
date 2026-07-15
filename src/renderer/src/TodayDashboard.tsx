@@ -63,12 +63,21 @@ function kindLabel(kind: AttentionKind): string {
   }[kind]
 }
 
-function tooltipPosition(clientX: number, clientY: number): { x: number; y: number } {
+function tooltipPosition(bounds: DOMRect): { x: number; y: number } {
   const width = 244
   const height = 114
+  const gap = 10
+  const preferredX = bounds.right + gap
+  const preferredY = bounds.bottom + gap
   return {
-    x: Math.max(12, Math.min(clientX + 14, window.innerWidth - width - 12)),
-    y: Math.max(12, Math.min(clientY + 14, window.innerHeight - height - 12))
+    x: Math.max(12, Math.min(
+      preferredX + width <= window.innerWidth - 12 ? preferredX : bounds.left - width - gap,
+      window.innerWidth - width - 12
+    )),
+    y: Math.max(12, Math.min(
+      preferredY + height <= window.innerHeight - 12 ? preferredY : bounds.top - height - gap,
+      window.innerHeight - height - 12
+    ))
   }
 }
 
@@ -91,12 +100,11 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
   ])), [activity.attentionSlices])
   const showTooltip = (
     slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>,
-    clientX: number,
-    clientY: number,
+    bounds: DOMRect,
     options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }
   ) => {
     const key = categoryKey(slice)
-    const position = tooltipPosition(clientX, clientY)
+    const position = tooltipPosition(bounds)
     setActiveKey(key)
     setTooltip({
       categoryKey: key,
@@ -111,11 +119,10 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
     })
   }
   const showFromPointer = (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: MouseEvent<HTMLElement | SVGElement>, options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }) => {
-    showTooltip(slice, event.clientX, event.clientY, options)
+    showTooltip(slice, event.currentTarget.getBoundingClientRect(), options)
   }
   const showFromFocus = (slice: Pick<TimelineSlice, 'kind' | 'key' | 'label' | 'seconds'>, event: FocusEvent<HTMLElement | SVGElement>, options?: { start?: string; end?: string; denominator?: number; percentLabel?: string }) => {
-    const bounds = event.currentTarget.getBoundingClientRect()
-    showTooltip(slice, bounds.left + bounds.width / 2, bounds.bottom, options)
+    showTooltip(slice, event.currentTarget.getBoundingClientRect(), options)
   }
   const clearHover = () => {
     setActiveKey(null)
@@ -154,7 +161,7 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
             <p>统一分母：排除 AFK 后的全部前台注意力</p>
           </div>
           <div className="attention-legend">
-            {activity.attentionSlices.length ? activity.attentionSlices.slice(0, 8).map((slice) => <button key={categoryKey(slice)} className={activeKey && activeKey !== categoryKey(slice) ? 'is-dimmed' : activeKey === categoryKey(slice) ? 'is-active' : ''} data-category-key={categoryKey(slice)} data-linked-active={activeKey === categoryKey(slice) ? 'true' : 'false'} onMouseEnter={(event) => showFromPointer(slice, event)} onMouseMove={(event) => showFromPointer(slice, event)} onMouseLeave={clearHover} onFocus={(event) => showFromFocus(slice, event)} onBlur={clearHover}>
+            {activity.attentionSlices.length ? activity.attentionSlices.slice(0, 8).map((slice) => <button key={categoryKey(slice)} className={activeKey && activeKey !== categoryKey(slice) ? 'is-dimmed' : activeKey === categoryKey(slice) ? 'is-active' : ''} data-category-key={categoryKey(slice)} data-linked-active={activeKey === categoryKey(slice) ? 'true' : 'false'} onMouseEnter={(event) => showFromPointer(slice, event)} onMouseLeave={clearHover} onFocus={(event) => showFromFocus(slice, event)} onBlur={clearHover}>
               <i style={{ background: sliceColors.get(categoryKey(slice)) }} />
               <span><strong>{slice.label}</strong><small>{slice.kind === 'project' ? '项目' : slice.kind === 'codex-unclassified' ? 'Codex · 待分类' : '应用'}</small></span>
               <em>{duration(slice.seconds)}<small>{Math.round((slice.seconds / total) * 100)}%</small></em>
@@ -211,7 +218,7 @@ function AttentionDonut({ activity, colors, activeKey, onPointer, onFocus, onLea
         const dashOffset = -offset
         offset += length
         const dimmed = Boolean(activeKey && activeKey !== key)
-        return <g key={key} className={`attention-donut__segment ${dimmed ? 'is-dimmed' : ''} ${activeKey === key ? 'is-active' : ''}`} tabIndex={0} role="button" aria-label={`${slice.label}，${duration(slice.seconds)}，${Math.round((slice.seconds / total) * 100)}%`} onMouseEnter={(event) => onPointer(slice, event)} onMouseMove={(event) => onPointer(slice, event)} onMouseLeave={onLeave} onFocus={(event) => onFocus(slice, event)} onBlur={onLeave}>
+        return <g key={key} className={`attention-donut__segment ${dimmed ? 'is-dimmed' : ''} ${activeKey === key ? 'is-active' : ''}`} tabIndex={0} role="button" aria-label={`${slice.label}，${duration(slice.seconds)}，${Math.round((slice.seconds / total) * 100)}%`} onMouseEnter={(event) => onPointer(slice, event)} onMouseLeave={onLeave} onFocus={(event) => onFocus(slice, event)} onBlur={onLeave}>
           <circle className="attention-donut__arc" cx="90" cy="90" r={DONUT_RADIUS} stroke={colors.get(key) ?? colorFor(slice.kind, slice.key, index)} strokeDasharray={`${Math.max(length - 2, .8)} ${DONUT_CIRCUMFERENCE}`} strokeDashoffset={dashOffset} />
           <circle className="attention-donut__hit" cx="90" cy="90" r={DONUT_RADIUS} strokeDasharray={`${Math.max(length, 1.8)} ${DONUT_CIRCUMFERENCE}`} strokeDashoffset={dashOffset} data-chart-target="donut" data-category-key={key} data-linked-active={activeKey === key ? 'true' : 'false'} />
         </g>
@@ -253,7 +260,7 @@ function Timeline({ activity, colors, activeKey, onPointer, onFocus, onLeave }: 
         const color = slice.kind === 'afk' ? AFK_COLOR : colors.get(`${slice.kind}:${slice.key}`) ?? colorFor(slice.kind, slice.key, index)
         const key = categoryKey(slice)
         const options = { start: slice.start, end: slice.end, denominator: range / 1000, percentLabel: '记录区间占比' }
-        return <button key={slice.id} className={`timeline-segment ${slice.kind} ${activeKey && activeKey !== key ? 'is-dimmed' : ''} ${activeKey === key ? 'is-active' : ''}`} style={{ left: `${left}%`, width: `${Math.max(width, .35)}%`, background: color }} data-category-key={key} data-linked-active={activeKey === key ? 'true' : 'false'} aria-label={`${clock(slice.start)}到${clock(slice.end)}，${slice.label}，${duration(slice.seconds)}`} onMouseEnter={(event) => onPointer(slice, event, options)} onMouseMove={(event) => onPointer(slice, event, options)} onMouseLeave={onLeave} onFocus={(event) => onFocus(slice, event, options)} onBlur={onLeave}>
+        return <button key={slice.id} className={`timeline-segment ${slice.kind} ${activeKey && activeKey !== key ? 'is-dimmed' : ''} ${activeKey === key ? 'is-active' : ''}`} style={{ left: `${left}%`, width: `${Math.max(width, .35)}%`, background: color }} data-category-key={key} data-linked-active={activeKey === key ? 'true' : 'false'} aria-label={`${clock(slice.start)}到${clock(slice.end)}，${slice.label}，${duration(slice.seconds)}`} onMouseEnter={(event) => onPointer(slice, event, options)} onMouseLeave={onLeave} onFocus={(event) => onFocus(slice, event, options)} onBlur={onLeave}>
           {width > 8 && <span>{slice.kind === 'project' && slice.app?.toLocaleLowerCase().includes('codex') ? 'C · ' : ''}{slice.label}</span>}
         </button>
       })}

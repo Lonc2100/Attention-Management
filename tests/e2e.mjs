@@ -89,10 +89,25 @@ try {
       if (box && (!widestSegment || box.width > widestSegment.box.width)) widestSegment = { candidate, box }
     }
     assert.ok(widestSegment, 'timeline did not expose an interactive segment')
-    await app.page.mouse.move(widestSegment.box.x + widestSegment.box.width / 2, widestSegment.box.y + widestSegment.box.height / 2)
+    const hoverY = widestSegment.box.y + widestSegment.box.height / 2
+    const hoverStartX = widestSegment.box.x + widestSegment.box.width * .3
+    const hoverEndX = widestSegment.box.x + widestSegment.box.width * .7
+    await app.page.mouse.move(hoverStartX, hoverY)
     await app.page.getByTestId('attention-tooltip').waitFor()
+    const firstTooltipBox = await app.page.getByTestId('attention-tooltip').boundingBox()
+    await app.page.mouse.move(hoverEndX, hoverY)
+    await app.page.waitForTimeout(80)
+    const secondTooltipBox = await app.page.getByTestId('attention-tooltip').boundingBox()
+    assert.ok(firstTooltipBox && secondTooltipBox, 'timeline tooltip did not expose stable geometry')
+    assert.ok(Math.abs(firstTooltipBox.x - secondTooltipBox.x) < 1 && Math.abs(firstTooltipBox.y - secondTooltipBox.y) < 1, 'tooltip followed mouse movement instead of staying anchored to the hovered target')
     const timelineKey = await widestSegment.candidate.getAttribute('data-category-key')
     assert.ok(timelineKey && await app.page.locator(`[data-category-key="${timelineKey}"][data-linked-active="true"]`).count() >= 2, 'timeline hover did not link chart elements')
+    const paintEffects = await app.page.evaluate(() => ({
+      tooltipBackdrop: getComputedStyle(document.querySelector('[data-testid="attention-tooltip"]')).backdropFilter,
+      dimmedFilters: [...document.querySelectorAll('.timeline-segment.is-dimmed')].map((element) => getComputedStyle(element).filter)
+    }))
+    assert.ok(paintEffects.tooltipBackdrop === 'none' || !paintEffects.tooltipBackdrop, 'tooltip still used backdrop-filter')
+    assert.ok(paintEffects.dimmedFilters.every((value) => value === 'none' || !value), 'dimmed timeline segments still used CSS filters')
   } else {
     assert.fail('interactive donut targets were not rendered')
   }

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
+- **Total Sessions**: 6
 - **Last Active**: 2026-07-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~172 | Active |
+| `journal-1.md` | ~207 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-07-16 | v0.7.0 首页工作活动与安静悬浮胶囊 | `261d9e2`, `a79fd36`, `b0a4d2f` | `main` |
 | 5 | 2026-07-16 | Editorial component guideline adoption | `20c3853` | `main` |
 | 4 | 2026-07-16 | Component governed page modules | `881d51a` | `main` |
 | 3 | 2026-07-15 | Theme token foundation | `8a5a6f8` | `main` |

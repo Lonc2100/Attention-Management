@@ -170,3 +170,38 @@ Translated the GSAP-inspired editorial core into finite desktop UI tokens and co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: v0.7.0 首页工作活动与安静悬浮胶囊
+
+**Date**: 2026-07-16
+**Task**: v0.7.0 首页工作活动与安静悬浮胶囊
+**Branch**: `main`
+
+### Summary
+
+完成近一年每日/每周/每月工作活动、周期成果指标、小尺寸悬浮窗、双轮 E2E、NSIS 打包与 v0.6.2 到 v0.7.0 真实升级验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `261d9e2` | (see git log) |
+| `a79fd36` | (see git log) |
+| `b0a4d2f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

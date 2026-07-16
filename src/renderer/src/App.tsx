@@ -53,14 +53,6 @@ function duration(seconds: number): string {
   return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`
 }
 
-function focusDuration(seconds: number): string {
-  const value = Math.max(0, Math.round(seconds))
-  if (value < 60) return `${value} 秒`
-  const minutes = Math.round(value / 60)
-  if (minutes < 60) return `${minutes} 分钟`
-  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`
-}
-
 function clock(iso: string): string {
   return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
@@ -135,17 +127,12 @@ export default function App() {
         <div className="privacy-note">本机保存 · 不录屏<br />AI 只接收聚合摘要</div>
       </aside>
       <main>
-        <header className={view === 'today' ? 'app-header app-header--today' : 'app-header'}>
-          <div><p className="eyebrow">{data.date}</p><h1>{view === 'today' ? '把时间变成结果' : { activities: '活动明细', insights: '个人规律', plan: '早间计划', review: '晚间复盘', diagnostics: '系统诊断', settings: '设置' }[view]}</h1></div>
-          {view === 'today' && <div className={`header-focus focus-${data.activity.focus.status}`} data-testid="focus-strip">
-            <span className="header-focus__dot" />
-            <div className="header-focus__copy"><small>{data.activity.focus.status === 'confirmed' ? '当前项目 · 自动识别' : '当前上下文'}</small><strong title={data.activity.focus.label}>{data.activity.focus.label}</strong></div>
-            <div className="header-focus__timer"><small>连续专注</small><strong>{focusDuration(data.activity.focus.continuousSeconds)}</strong></div>
-          </div>}
+        {view !== 'today' && <header className="app-header">
+          <div><p className="eyebrow">{data.date}</p><h1>{{ activities: '活动明细', insights: '个人规律', plan: '早间计划', review: '晚间复盘', diagnostics: '系统诊断', settings: '设置' }[view]}</h1></div>
           <div className={`status ${data.activity.connected && data.activity.tracking ? 'online' : ''}`}>
             <span />{data.activity.connected ? (data.activity.tracking ? '正在真实记录' : '采集已暂停') : 'ActivityWatch 未连接'}
           </div>
-        </header>
+        </header>}
         {error && <div className="error-banner"><strong>操作未完成</strong>{error}<button onClick={() => setError('')}>×</button></div>}
         {view === 'today' && <Today data={data} busy={busy} setView={setView} setActivityDate={setActivityDate} run={run} setActivity={setActivity} onReload={load} />}
         {view === 'activities' && <ActivityDetailsView key={activityDate || data.date} initialDate={activityDate || data.date} onActivity={setActivity} />}

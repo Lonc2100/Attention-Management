@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, FocusEvent, MouseEvent } from 'react'
 import type { WorkActivityCell, WorkActivityDashboard, WorkActivityMode } from '../../shared/contracts'
 import { workActivityLevel } from '../../shared/work-activity'
-import { MetricGrid, MetricModule, ModuleHeader, PageModule, SegmentedControl } from './ui/PageModules'
+import { PageModule, SegmentedControl } from './ui/PageModules'
 
 const MODES = [
   { value: 'day', label: '每日' },
@@ -91,16 +91,11 @@ export function WorkActivityModule({ onOpenDate }: { onOpenDate: (date: string) 
     />
   }
 
-  const metrics = dashboard?.metrics
-  const periodDays = Math.max(metrics?.periodDays ?? 0, 1)
   return <PageModule className="work-activity" variant="data" density="compact" data-testid="work-activity-module">
-    <ModuleHeader
-      eyebrow="WORK ACTIVITY"
-      title="实际工作投入"
-      discipline="blue"
-      description="按非 AFK 的前台电脑活动统计；它是投入证据，不自动等同于成果。"
-      action={<SegmentedControl ariaLabel="工作活动统计范围" value={mode} options={MODES} onChange={setMode} />}
-    />
+    <header className="work-activity__header">
+      <div><h2>工作活动</h2><button type="button" className="work-activity__info" aria-label="查看工作活动统计口径" title="按非 AFK 的前台电脑活动统计；它是投入证据，不自动等同于成果。">i</button></div>
+      <SegmentedControl ariaLabel="工作活动统计范围" value={mode} options={MODES} onChange={setMode} />
+    </header>
     {loading && !dashboard ? <div className="work-activity__state">正在整理本机活动…</div> : error ? <div className="work-activity__state work-activity__state--error">{error}</div> : dashboard && <>
       <div className={`work-activity__chart work-activity__chart--${mode}`} aria-label={`${MODES.find((item) => item.value === mode)?.label}工作活动图`}>
         {mode === 'day' ? <div className="work-activity__day-layout">
@@ -109,14 +104,6 @@ export function WorkActivityModule({ onOpenDate }: { onOpenDate: (date: string) 
         </div> : <div className={`work-activity__period-grid work-activity__period-grid--${mode}`}>{dashboard.cells.map((cell) => <div className="work-activity__period" key={cell.key}>{cellButton(cell)}<small>{mode === 'month' ? cell.startDate.slice(5, 7) + '月' : cell.startDate.slice(5).replace('-', '/')}</small></div>)}</div>}
         <div className="work-activity__legend"><span>少</span>{[0, 1, 2, 3, 4].map((level) => <i key={level} className={`work-activity__cell--level-${level}`} />)}<span>多</span></div>
       </div>
-      <MetricGrid ariaLabel="周期工作指标" className="work-activity__metrics">
-        <MetricModule label="实际电脑投入" value={duration(metrics?.activeSeconds ?? 0)} note={`${dashboard.rangeStart} 至 ${dashboard.rangeEnd}`} />
-        <MetricModule label="日均投入" value={duration(metrics?.averageActiveSeconds ?? 0)} note="按本周期已发生自然日平均" />
-        <MetricModule label="成果注意力占比" value={`${metrics?.resultAttentionPercent ?? 0}%`} note={`${duration(metrics?.resultAttentionSeconds ?? 0)} 可关联成果`} />
-        <MetricModule label="长专注块" value={`${metrics?.longFocusCount ?? 0} 次`} note="连续项目注意力至少 45 分钟" />
-        <MetricModule label="优先成果完成" value={`${metrics?.priorityCompleted ?? 0} / ${metrics?.priorityPlanned ?? 0}`} note="只依据晚间复盘结果" />
-        <MetricModule label="证据完整度" value={`${Math.round(((metrics?.reviewedDays ?? 0) + (metrics?.linkedOutcomeDays ?? 0)) / (periodDays * 2) * 100)}%`} note={`复盘 ${metrics?.reviewedDays ?? 0} 天 · 关联成果 ${metrics?.linkedOutcomeDays ?? 0} 天`} />
-      </MetricGrid>
       {!dashboard.available && <div className="work-activity__warning">ActivityWatch 暂不可用：{dashboard.error}</div>}
     </>}
     {tooltip && <div className="work-activity__tooltip" role="tooltip" style={{ left: tooltip.x, top: tooltip.y }}><strong>{dateLabel(tooltip.cell, mode)}</strong><span>{tooltip.cell.available ? duration(tooltip.cell.activeSeconds) : '数据不可用'}</span><small>{mode === 'day' ? '点击查看活动明细' : `${tooltip.cell.activeDays} 个有活动日`}</small></div>}

@@ -143,28 +143,27 @@ export function TodayDashboard({ data, busy, onView, onOpenActivityDate, run, on
     setEditing(null)
   })
 
+  const recordingLabel = activity.connected ? (activity.tracking ? '正在真实记录' : '采集已暂停') : 'ActivityWatch 未连接'
+  const reminderLabel = data.reminders.eveningDue ? '复盘待完成' : data.reminders.morningDue ? '计划待确认' : null
+  const priorityAction = data.reminders.eveningDue ? 'review' : 'plan'
+
   return <div className="dashboard">
-    <section className="dashboard-quick-row" aria-label="今日摘要">
-      {(data.reminders.morningDue || data.reminders.eveningDue) && <button className="dashboard-reminder" onClick={() => onView(data.reminders.eveningDue ? 'review' : 'plan')}>
-        <span>{data.reminders.eveningDue ? '晚间复盘待完成' : '早间计划待确认'}</span>
-        <strong>现在完成 →</strong>
-      </button>}
-      <div className="compact-metrics">
-        <article><span>电脑活跃</span><strong>{duration(activity.activeSeconds)}</strong><small>排除 {duration(activity.afkSeconds)} AFK</small></article>
-        <article><span>Codex 注意力</span><strong>{duration(activity.codexActiveSeconds)}</strong><small>前台且非 AFK</small></article>
-        <article><span>Codex 项目覆盖</span><strong>{activity.codexCoveragePercent}%</strong><small>{activity.codexUnclassifiedSeconds ? `${duration(activity.codexUnclassifiedSeconds)} 待分类` : '全部已归属'}</small></article>
+    <section className="dashboard-command-strip" aria-label="今日关键状态">
+      <div className={`dashboard-command-strip__focus focus-${activity.focus.status}`} data-testid="focus-strip">
+        <span className="dashboard-command-strip__dot" />
+        <span className="dashboard-command-strip__copy"><small>{activity.focus.status === 'confirmed' ? '当前项目' : '当前上下文'}</small><strong title={activity.focus.label}>{activity.focus.label}</strong></span>
+        <span className="dashboard-command-strip__timer"><small>连续专注</small><strong>{compactDuration(activity.focus.continuousSeconds)}</strong></span>
       </div>
+      <div className="dashboard-command-strip__metric"><small>今日投入</small><strong>{duration(activity.activeSeconds)}</strong></div>
+      <button className="dashboard-command-strip__priority" data-testid="priority-outcome-evidence" onClick={() => onView(priorityAction)}>
+        <span><small>优先成果</small><strong title={priorityEvidence?.title}>{priorityEvidence?.title ?? '待确认'}</strong></span>
+        <em>{reminderLabel ?? (priorityEvidence?.projectLabels.length ? `${duration(priorityEvidence.attentionSeconds)} 注意力` : '暂无关联证据')}</em>
+      </button>
+      <div className={`dashboard-command-strip__status ${activity.connected && activity.tracking ? 'online' : ''}`} title={recordingLabel}><span />{recordingLabel}</div>
     </section>
 
-    <WorkActivityModule onOpenDate={onOpenActivityDate} />
-
-    <section className="panel result-evidence" data-testid="priority-outcome-evidence">
-      <div><p className="eyebrow">PRIORITY OUTCOME</p><h2>{priorityEvidence ? priorityEvidence.title : '今天还没有绝对优先成果'}</h2><small>{priorityEvidence?.projectLabels.length ? `关联 ${priorityEvidence.projectLabels.join('、')}` : priorityEvidence ? '尚未关联项目，因此不会猜测成果注意力' : '先用 5 分钟确认今天最重要的结果'}</small></div>
-      <div className="result-evidence__metric"><span>可确认的项目注意力</span><strong>{priorityEvidence?.projectLabels.length ? duration(priorityEvidence.attentionSeconds) : '暂无证据'}</strong><small>只统计显式关联项目</small></div>
-      <button className="secondary" onClick={() => onView('plan')}>{priorityEvidence ? '调整关联' : '开始计划'}</button>
-    </section>
-
-    <section className="dashboard-top">
+    <section className="dashboard-analysis-grid">
+      <WorkActivityModule onOpenDate={onOpenActivityDate} />
       <article className="panel attention-overview" data-testid="attention-overview">
         <div className="panel-head compact-head"><div><p className="eyebrow">TODAY'S ATTENTION</p><h2>今天的注意力去了哪里</h2></div><button className="text-button" disabled={busy === 'refresh'} onClick={() => run('refresh', async () => onActivity(await window.timeEfficiency.refreshActivity()))}>{busy === 'refresh' ? '刷新中…' : '刷新'}</button></div>
         <div className="attention-layout">

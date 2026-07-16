@@ -77,10 +77,12 @@ try {
   await app.page.locator('.work-activity__period-grid--month').waitFor()
   await app.page.getByRole('button', { name: '每日' }).click()
   await app.page.locator('.work-activity__day-grid').waitFor()
-  record('Work activity overview', 'daily, weekly, and monthly views rendered with hover evidence and period metrics')
+  record('Work activity overview', 'daily, weekly, and monthly views rendered with hover evidence in the compact homepage module')
   await app.page.getByTestId('attention-timeline').waitFor()
   await app.page.getByTestId('focus-strip').waitFor()
-  for (const [width, height] of [[1440, 900], [1600, 1000]]) {
+  const commandStrip = app.page.locator('.dashboard-command-strip')
+  assert.equal(await app.page.locator('.work-activity__metrics').count(), 0, 'secondary period metrics remained on the homepage')
+  for (const [width, height] of [[1440, 900], [1600, 1000], [1920, 1080]]) {
     await app.electronApp.evaluate(({ BrowserWindow }, size) => {
       const main = BrowserWindow.getAllWindows().find((item) => !item.webContents.getURL().includes('window=widget'))
       main?.setBounds({ x: 40, y: 40, width: size.width, height: size.height })
@@ -88,8 +90,14 @@ try {
     await app.page.waitForTimeout(200)
     const noHorizontalOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     assert.equal(noHorizontalOverflow, true, `dashboard overflowed horizontally at ${width}x${height}`)
+    const commandStripBox = await commandStrip.boundingBox()
+    assert.ok(commandStripBox && commandStripBox.height <= 64, `homepage command strip was taller than the compact design limit at ${width}x${height}`)
     const workActivityBox = await app.page.getByTestId('work-activity-module').boundingBox()
     assert.ok(workActivityBox && workActivityBox.y < height, `work activity module was not visible at ${width}x${height}`)
+    if (width >= 1440) {
+      const attentionBox = await app.page.getByTestId('attention-overview').boundingBox()
+      assert.ok(attentionBox && Math.abs(attentionBox.y - workActivityBox.y) < 4, `dashboard charts did not share the wide-screen data row at ${width}x${height}`)
+    }
     await app.page.mouse.move(350, 40)
     try {
       await app.page.screenshot({ path: join(artifacts, `e2e-attention-dashboard-${width}x${height}.png`), fullPage: false, timeout: 15_000 })
@@ -240,18 +248,22 @@ try {
   await inputs.nth(1).fill('验证 ActivityWatch 真实采集')
   await app.page.locator('.outcome-input input[type="radio"]').nth(0).check()
   const firstProjectChip = app.page.locator('.plan-outcome-card').nth(0).locator('.project-picker label').first()
-  assert.ok(await firstProjectChip.count(), 'plan did not expose known projects for outcome linking')
-  const linkedProjectLabel = (await firstProjectChip.innerText()).trim()
-  if (!await firstProjectChip.locator('input').isChecked()) await firstProjectChip.click()
+  const hasKnownProject = Boolean(await firstProjectChip.count())
+  const linkedProjectLabel = hasKnownProject ? (await firstProjectChip.innerText()).trim() : null
+  if (hasKnownProject && !await firstProjectChip.locator('input').isChecked()) await firstProjectChip.click()
   await app.page.getByRole('button', { name: /确认，开始今天|更新今日计划/ }).click()
   await app.page.getByRole('button', { name: /更新今日计划/ }).waitFor()
-  record('Morning plan', `saved 2 outcomes, one absolute priority, and linked ${linkedProjectLabel}`)
+  record('Morning plan', linkedProjectLabel
+    ? `saved 2 outcomes, one absolute priority, and linked ${linkedProjectLabel}`
+    : 'saved 2 outcomes and one absolute priority while truthfully retaining the no-known-project state')
 
   await app.page.getByRole('button', { name: '今日概览' }).click()
   const priorityEvidence = app.page.getByTestId('priority-outcome-evidence')
   await priorityEvidence.waitFor()
-  assert.ok((await priorityEvidence.innerText()).includes(linkedProjectLabel), 'dashboard did not render linked outcome evidence')
-  record('Outcome evidence dashboard', 'absolute priority rendered with explicit project-only attention evidence')
+  const compactEvidenceText = await priorityEvidence.innerText()
+  const expectedEvidence = linkedProjectLabel ? '注意力' : '暂无关联证据'
+  assert.ok(compactEvidenceText.includes('交付真实时间效率闭环') && compactEvidenceText.includes(expectedEvidence), 'dashboard did not render truthful compact outcome evidence')
+  record('Outcome evidence dashboard', `absolute priority and ${linkedProjectLabel ? 'project-only attention' : 'missing-link'} evidence rendered in the compact command strip`)
 
   await app.page.getByRole('button', { name: /^晚间复盘/ }).first().click()
   await app.page.locator('.review-outcomes select').nth(0).selectOption('done')
@@ -259,7 +271,8 @@ try {
   await app.page.locator('textarea').fill('完成了真实采集、持久化和界面链路。')
   await app.page.locator('.field.block input').fill('继续完成安装包与启动验收。')
   await app.page.getByRole('button', { name: '保存今日复盘' }).click()
-  assert.ok((await app.page.locator('.review-outcomes').innerText()).includes('项目注意力'), 'review did not render outcome attention evidence')
+  const reviewEvidenceText = await app.page.locator('.review-outcomes').innerText()
+  assert.ok(reviewEvidenceText.includes(linkedProjectLabel ? '项目注意力' : '暂无可量化注意力证据'), 'review did not render truthful outcome attention evidence')
   record('Evening review', 'saved result statuses, summary, tomorrow intent, and rendered linked attention evidence')
 
   await app.page.getByRole('button', { name: '个人规律' }).click()

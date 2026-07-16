@@ -51,7 +51,7 @@
 - [x] Build NSIS package and run package smoke.
 - [x] Record real data/autostart baseline, install v0.7.0 over v0.6.2, verify preservation and version.
 - [x] Update documentation and Trellis specs if new non-obvious knowledge was found.
-- [ ] Commit work, archive task, commit bookkeeping, tag and push.
+- [x] Commit work, archive task and commit bookkeeping. Tag/push is performed immediately after this archive record.
 
 ## Validation commands
 

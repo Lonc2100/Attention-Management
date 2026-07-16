@@ -4,6 +4,7 @@
 
 | 版本 | 标题 | 需求内容 | PRD 链接 |
 |---|---|---|---|
+| PRD-v0.7.0 | 首页工作活动与安静悬浮胶囊 | 首页融合近一年每日/每周/每月实际电脑投入、成果注意力与周期成果指标；悬浮窗缩至低干扰尺寸。统计明确区分电脑投入、成果证据和效率判断。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-16-v0-7-home-work-activity/prd.md) |
 | PRD-v0.6.0 | Windows 对外测试准备 | 首次启动说明、派生数据隐私排除、本地备份恢复、聚合 CSV、脱敏诊断及未签名/无自动更新的真实边界；不改写或自动备份 ActivityWatch 原始 bucket。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-15-07-15-v0-6-external-beta-readiness/prd.md) |
 | PRD-v0.5.0 | 成果关联与个人规律 | 早间成果可显式关联项目；首页、复盘与 Codex 聚合分析展示项目级成果证据；新增 7/14/30 天个人规律页，并以至少 3 个高质量复盘日作为候选时段门槛，不生成单一生产力分数。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-15-v0-5-results-and-patterns/prd.md) |
 | PRD-v0.4.2 | 悬浮预览性能优化 | 将圆环、图例和时间轴提示卡改为目标旁固定定位，移除 mousemove 驱动的整页状态更新，以及批量滤镜和背景模糊重绘；保留项目联动高亮与键盘可用性。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-15-v0-4-2-hover-preview-performance/prd.md) |

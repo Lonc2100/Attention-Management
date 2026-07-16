@@ -65,6 +65,19 @@ try {
   }
   record('ActivityWatch UI status', 'connected and tracking')
   await app.page.getByTestId('attention-overview').waitFor()
+  await app.page.getByTestId('work-activity-module').waitFor()
+  const workCells = app.page.locator('.work-activity__cell')
+  await workCells.nth(359).waitFor()
+  assert.ok(await workCells.count() >= 360, 'daily work activity did not render a year of cells')
+  await workCells.last().hover()
+  await app.page.locator('.work-activity__tooltip').waitFor()
+  await app.page.getByRole('button', { name: '每周' }).click()
+  await app.page.locator('.work-activity__period-grid--week').waitFor()
+  await app.page.getByRole('button', { name: '每月' }).click()
+  await app.page.locator('.work-activity__period-grid--month').waitFor()
+  await app.page.getByRole('button', { name: '每日' }).click()
+  await app.page.locator('.work-activity__day-grid').waitFor()
+  record('Work activity overview', 'daily, weekly, and monthly views rendered with hover evidence and period metrics')
   await app.page.getByTestId('attention-timeline').waitFor()
   await app.page.getByTestId('focus-strip').waitFor()
   for (const [width, height] of [[1440, 900], [1600, 1000]]) {
@@ -75,8 +88,8 @@ try {
     await app.page.waitForTimeout(200)
     const noHorizontalOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     assert.equal(noHorizontalOverflow, true, `dashboard overflowed horizontally at ${width}x${height}`)
-    const timelineBox = await app.page.getByTestId('attention-timeline').boundingBox()
-    assert.ok(timelineBox && timelineBox.y + timelineBox.height <= height, `timeline was not fully visible at ${width}x${height}`)
+    const workActivityBox = await app.page.getByTestId('work-activity-module').boundingBox()
+    assert.ok(workActivityBox && workActivityBox.y < height, `work activity module was not visible at ${width}x${height}`)
     await app.page.mouse.move(350, 40)
     try {
       await app.page.screenshot({ path: join(artifacts, `e2e-attention-dashboard-${width}x${height}.png`), fullPage: false, timeout: 15_000 })
@@ -87,6 +100,7 @@ try {
   const donutGroup = app.page.locator('.attention-donut__segment').first()
   const donutTarget = donutGroup.locator('[data-chart-target="donut"]')
   if (await donutGroup.count()) {
+    await donutGroup.scrollIntoViewIfNeeded()
     await donutGroup.focus()
     await app.page.getByTestId('attention-tooltip').waitFor()
     const activeKey = await donutTarget.getAttribute('data-category-key')
@@ -106,9 +120,12 @@ try {
       }
     }
     assert.ok(widestSegment, 'timeline did not expose a chart-linked interactive segment')
-    const hoverY = widestSegment.box.y + widestSegment.box.height / 2
-    const hoverStartX = widestSegment.box.x + widestSegment.box.width * .3
-    const hoverEndX = widestSegment.box.x + widestSegment.box.width * .7
+    await widestSegment.candidate.scrollIntoViewIfNeeded()
+    const hoveredBox = await widestSegment.candidate.boundingBox()
+    assert.ok(hoveredBox, 'timeline segment was not visible after scrolling')
+    const hoverY = hoveredBox.y + hoveredBox.height / 2
+    const hoverStartX = hoveredBox.x + hoveredBox.width * .3
+    const hoverEndX = hoveredBox.x + hoveredBox.width * .7
     await app.page.mouse.move(hoverStartX, hoverY)
     await app.page.getByTestId('attention-tooltip').waitFor()
     const firstTooltipBox = await app.page.getByTestId('attention-tooltip').boundingBox()

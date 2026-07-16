@@ -12,6 +12,7 @@ import type {
   CodexContextStatus,
   PrivacyRule
 } from '../shared/contracts'
+import type { DailyWorkActivity } from '../shared/work-activity'
 import { aggregateActivity, disconnectedSummary } from './aggregate'
 import { classifyActivityDay } from './classification'
 import { dayBounds } from './date'
@@ -142,6 +143,50 @@ export class ActivityWatchManager {
     } catch (error) {
       return disconnectedSummary(this.tracking, error)
     }
+  }
+
+  async getDailyActiveDurations(dates: string[]): Promise<DailyWorkActivity[]> {
+    if (dates.length === 0) return []
+    await waitForServer(1500)
+    const buckets = await this.getBuckets()
+    const windowBucket = this.newestBucket(buckets, 'currentwindow')
+    const afkBucket = this.newestBucket(buckets, 'afkstatus')
+    if (!windowBucket || !afkBucket) throw new Error('ActivityWatch 窗口或 AFK 数据源不可用')
+
+    const query = [
+      `events = flood(query_bucket(${JSON.stringify(windowBucket.id)}));`,
+      'observed_seconds = sum_durations(events);',
+      `not_afk = flood(query_bucket(${JSON.stringify(afkBucket.id)}));`,
+      'not_afk = filter_keyvals(not_afk, "status", ["not-afk"]);',
+      'active_events = filter_period_intersect(events, not_afk);',
+      'RETURN = {"activeSeconds": sum_durations(active_events), "observedSeconds": observed_seconds};'
+    ]
+    const timeperiods = dates.map((date) => {
+      const { start, end } = dayBounds(date)
+      return `${start}/${end}`
+    })
+    const response = await fetch(`${API}/query/`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query, timeperiods }),
+      signal: AbortSignal.timeout(30_000)
+    })
+    if (!response.ok) throw new Error(`读取 ActivityWatch 区间统计失败：HTTP ${response.status}`)
+    const values = await response.json() as Array<{ activeSeconds?: unknown; observedSeconds?: unknown }>
+    if (!Array.isArray(values) || values.length !== dates.length) throw new Error('ActivityWatch 区间统计返回数量异常')
+    return dates.map((date, index) => {
+      const activeSeconds = Number(values[index]?.activeSeconds)
+      const observedSeconds = Number(values[index]?.observedSeconds)
+      if (!Number.isFinite(activeSeconds) || !Number.isFinite(observedSeconds)) {
+        throw new Error(`ActivityWatch 区间统计格式异常：${date}`)
+      }
+      return {
+        date,
+        activeSeconds: Math.max(0, activeSeconds),
+        observedSeconds: Math.max(0, observedSeconds),
+        available: true
+      }
+    })
   }
 
   async getDetails(

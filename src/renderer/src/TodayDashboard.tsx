@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FocusEvent, MouseEvent } from 'react'
 import type { ActivitySummary, BootstrapData, ProjectUsage, TimelineSlice } from '../../shared/contracts'
 import { buildOutcomeEvidence } from '../../shared/outcome-insights'
+import { WorkActivityModule } from './WorkActivityModule'
 
 const APP_COLORS = ['#6e8ff8', '#aa7df2', '#f09a62', '#52c7d9', '#ef6f9b']
 const PROJECT_COLORS = ['#72e1b2', '#54cfa0', '#91ebc5', '#3db789', '#a8f0d2']
@@ -82,10 +83,11 @@ function tooltipPosition(bounds: DOMRect): { x: number; y: number } {
   }
 }
 
-export function TodayDashboard({ data, busy, onView, run, onActivity }: {
+export function TodayDashboard({ data, busy, onView, onOpenActivityDate, run, onActivity }: {
   data: BootstrapData
   busy: string
   onView: (view: 'plan' | 'review' | 'diagnostics') => void
+  onOpenActivityDate: (date: string) => void
   run: (name: string, action: () => Promise<void>) => Promise<void>
   onActivity: (activity: ActivitySummary) => void
 }) {
@@ -153,6 +155,8 @@ export function TodayDashboard({ data, busy, onView, run, onActivity }: {
         <article><span>Codex 项目覆盖</span><strong>{activity.codexCoveragePercent}%</strong><small>{activity.codexUnclassifiedSeconds ? `${duration(activity.codexUnclassifiedSeconds)} 待分类` : '全部已归属'}</small></article>
       </div>
     </section>
+
+    <WorkActivityModule onOpenDate={onOpenActivityDate} />
 
     <section className="panel result-evidence" data-testid="priority-outcome-evidence">
       <div><p className="eyebrow">PRIORITY OUTCOME</p><h2>{priorityEvidence ? priorityEvidence.title : '今天还没有绝对优先成果'}</h2><small>{priorityEvidence?.projectLabels.length ? `关联 ${priorityEvidence.projectLabels.join('、')}` : priorityEvidence ? '尚未关联项目，因此不会猜测成果注意力' : '先用 5 分钟确认今天最重要的结果'}</small></div>

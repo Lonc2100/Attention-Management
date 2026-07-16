@@ -9,10 +9,13 @@ import type {
   RemoveActivityCorrectionInput,
   ReviewInput,
   SaveActivityCorrectionInput,
-  Settings
+  Settings,
+  WorkActivityDashboard,
+  WorkActivityMode
 } from '../shared/contracts'
 import { IPC } from '../shared/contracts'
 import { buildPersonalInsights } from '../shared/outcome-insights'
+import { aggregateWorkActivity, buildWorkPeriodMetrics } from '../shared/work-activity'
 import { ActivityWatchManager } from './activitywatch'
 import { CodexAppServerClient } from './codex-app-server'
 import { CodexContextTracker } from './codex-context-tracker'
@@ -33,6 +36,8 @@ let widgetPositionTimer: NodeJS.Timeout | null = null
 const notified = new Set<string>()
 const e2eMode = process.env.TIME_EFFICIENCY_E2E === '1'
 const startHidden = process.argv.includes('--hidden')
+const workActivityCache = new Map<WorkActivityMode, { expiresAt: number; value: WorkActivityDashboard }>()
+let dailyWorkFactsCache: { expiresAt: number; value: Awaited<ReturnType<ActivityWatchManager['getDailyActiveDurations']>> } | null = null
 
 function runtimeRoot(): string {
   return app.isPackaged ? join(process.resourcesPath, 'activitywatch') : join(app.getAppPath(), 'runtime', 'activitywatch')
@@ -264,6 +269,62 @@ async function personalInsights(days: 7 | 14 | 30) {
   return buildPersonalInsights(inputs, days)
 }
 
+function periodDateKeys(mode: WorkActivityMode, now = new Date()): string[] {
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+  const start = new Date(end)
+  if (mode === 'week') start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
+  if (mode === 'month') start.setDate(1)
+  const keys: string[] = []
+  for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) keys.push(localDateKey(cursor))
+  return keys
+}
+
+function invalidateWorkActivityCache(): void {
+  workActivityCache.clear()
+  dailyWorkFactsCache = null
+}
+
+async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivityDashboard> {
+  const cached = workActivityCache.get(mode)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+  const today = localDateKey()
+  const chartDates = recentDateKeys(366)
+  let available = true
+  let error: string | null = null
+  let facts
+  try {
+    if (!dailyWorkFactsCache || dailyWorkFactsCache.expiresAt <= Date.now()) {
+      dailyWorkFactsCache = {
+        expiresAt: Date.now() + 5 * 60_000,
+        value: await activityWatch.getDailyActiveDurations(chartDates)
+      }
+    }
+    facts = dailyWorkFactsCache.value
+  } catch (cause) {
+    available = false
+    error = cause instanceof Error ? cause.message : String(cause)
+    facts = chartDates.map((date) => ({ date, activeSeconds: 0, observedSeconds: 0, available: false }))
+  }
+
+  const metricDates = periodDateKeys(mode)
+  const inputs = available ? await Promise.all(metricDates.map(async (date) => ({
+    record: store.getRecordSnapshot(date),
+    activity: await historicalActivitySummary(date)
+  }))) : []
+  const value: WorkActivityDashboard = {
+    mode,
+    rangeStart: metricDates[0] ?? today,
+    rangeEnd: metricDates.at(-1) ?? today,
+    cells: aggregateWorkActivity(facts, mode),
+    metrics: buildWorkPeriodMetrics(inputs, mode),
+    available,
+    error,
+    generatedAt: new Date().toISOString()
+  }
+  workActivityCache.set(mode, { expiresAt: Date.now() + 5 * 60_000, value })
+  return value
+}
+
 async function activityDetails(date: string) {
   const details = await activityWatch.getDetails(
     date,
@@ -319,19 +380,23 @@ function registerIpc(): void {
     })).filter((item) => item.title).slice(0, 3)
     if (!outcomes.length) throw new Error('至少填写一个重要成果')
     if (!outcomes.some((item) => item.id === input.priorityOutcomeId)) throw new Error('请选择一个绝对优先项')
-    return store.updateRecord(localDateKey(), (record) => ({
+    const saved = store.updateRecord(localDateKey(), (record) => ({
       ...record,
       outcomes,
       priorityOutcomeId: input.priorityOutcomeId,
       planCompletedAt: new Date().toISOString()
     }))
+    invalidateWorkActivityCache()
+    return saved
   })
   ipcMain.handle(IPC.saveReview, (_event, input: ReviewInput) => {
     if (input.subjectiveScore < 1 || input.subjectiveScore > 5) throw new Error('主观效率评分必须在 1–5 之间')
-    return store.updateRecord(localDateKey(), (record) => ({
+    const saved = store.updateRecord(localDateKey(), (record) => ({
       ...record,
       review: { ...input, summary: input.summary.trim(), tomorrowIntent: input.tomorrowIntent.trim(), completedAt: new Date().toISOString() }
     }))
+    invalidateWorkActivityCache()
+    return saved
   })
   ipcMain.handle(IPC.saveAfkNote, (_event, input: AfkNote) =>
     store.updateRecord(localDateKey(), (record) => ({
@@ -451,6 +516,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.getInsights, (_event, days: unknown) => {
     if (days !== 7 && days !== 14 && days !== 30) throw new Error('个人规律时间范围无效')
     return personalInsights(days)
+  })
+  ipcMain.handle(IPC.getWorkActivity, (_event, mode: unknown) => {
+    if (mode !== 'day' && mode !== 'week' && mode !== 'month') throw new Error('工作活动时间范围无效')
+    return workActivityDashboard(mode)
   })
   ipcMain.handle(IPC.showWindow, () => showWindow())
   ipcMain.handle(IPC.showWidget, () => showWidget())

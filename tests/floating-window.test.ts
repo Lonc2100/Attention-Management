@@ -9,7 +9,7 @@ describe('floating widget placement', () => {
 
   it('opens at the upper-right of the primary display by default', () => {
     expect(widgetBounds(displays, { widgetExpanded: false, widgetPosition: null })).toEqual({
-      x: 1586, y: 18, width: 316, height: 68
+      x: 1650, y: 18, width: 252, height: 48
     })
   })
 
@@ -17,13 +17,13 @@ describe('floating widget placement', () => {
     expect(widgetBounds(displays, {
       widgetExpanded: true,
       widgetPosition: { x: 4000, y: -100, displayId: '2' }
-    })).toEqual({ x: 2878, y: 0, width: 322, height: 214 })
+    })).toEqual({ x: 2932, y: 0, width: 268, height: 150 })
   })
 
   it('falls back to the primary display when the saved display disappeared', () => {
     expect(widgetBounds(displays, {
       widgetExpanded: false,
       widgetPosition: { x: 2000, y: 100, displayId: 'missing' }
-    })).toEqual({ x: 1586, y: 18, width: 316, height: 68 })
+    })).toEqual({ x: 1650, y: 18, width: 252, height: 48 })
   })
 })

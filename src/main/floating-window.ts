@@ -2,8 +2,8 @@ import type { BrowserWindow, Rectangle } from 'electron'
 import type { Settings } from '../shared/contracts'
 
 export const WIDGET_SIZE = {
-  collapsed: { width: 316, height: 68 },
-  expanded: { width: 322, height: 214 }
+  collapsed: { width: 252, height: 48 },
+  expanded: { width: 268, height: 150 }
 } as const
 
 export interface DisplayArea {

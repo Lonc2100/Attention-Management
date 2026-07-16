@@ -31,6 +31,7 @@ const api: TimeEfficiencyApi = {
   moveActivityRule: (input: MoveActivityRuleInput) => ipcRenderer.invoke(IPC.moveActivityRule, input),
   removeActivityRule: (input: ActivityRuleMutationInput) => ipcRenderer.invoke(IPC.removeActivityRule, input),
   getInsights: (days) => ipcRenderer.invoke(IPC.getInsights, days),
+  getWorkActivity: (mode) => ipcRenderer.invoke(IPC.getWorkActivity, mode),
   showWindow: () => ipcRenderer.invoke(IPC.showWindow),
   showWidget: () => ipcRenderer.invoke(IPC.showWidget),
   hideWidget: () => ipcRenderer.invoke(IPC.hideWidget),

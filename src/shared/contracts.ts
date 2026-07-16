@@ -238,6 +238,48 @@ export interface PersonalInsights {
   generatedAt: string
 }
 
+export type WorkActivityMode = 'day' | 'week' | 'month'
+
+export interface DailyWorkActivity {
+  date: string
+  activeSeconds: number
+  observedSeconds: number
+  available: boolean
+}
+
+export interface WorkActivityCell {
+  key: string
+  startDate: string
+  endDate: string
+  activeSeconds: number
+  activeDays: number
+  available: boolean
+}
+
+export interface WorkPeriodMetrics {
+  periodDays: number
+  activeSeconds: number
+  averageActiveSeconds: number
+  resultAttentionSeconds: number
+  resultAttentionPercent: number
+  longFocusCount: number
+  priorityCompleted: number
+  priorityPlanned: number
+  reviewedDays: number
+  linkedOutcomeDays: number
+}
+
+export interface WorkActivityDashboard {
+  mode: WorkActivityMode
+  rangeStart: string
+  rangeEnd: string
+  cells: WorkActivityCell[]
+  metrics: WorkPeriodMetrics
+  available: boolean
+  error: string | null
+  generatedAt: string
+}
+
 export interface ActivityRule {
   id: string
   projectKey: string
@@ -381,6 +423,7 @@ export interface TimeEfficiencyApi {
   moveActivityRule(input: MoveActivityRuleInput): Promise<ActivityDetails>
   removeActivityRule(input: ActivityRuleMutationInput): Promise<ActivityDetails>
   getInsights(days: 7 | 14 | 30): Promise<PersonalInsights>
+  getWorkActivity(mode: WorkActivityMode): Promise<WorkActivityDashboard>
   showWindow(): Promise<void>
   showWidget(): Promise<void>
   hideWidget(): Promise<void>
@@ -414,6 +457,7 @@ export const IPC = {
   moveActivityRule: 'activity:rule-move',
   removeActivityRule: 'activity:rule-remove',
   getInsights: 'insights:get',
+  getWorkActivity: 'work-activity:get',
   showWindow: 'window:show',
   showWidget: 'widget:show',
   hideWidget: 'widget:hide',

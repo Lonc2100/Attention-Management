@@ -72,6 +72,7 @@ function statusLabel(status: OutcomeStatus): string {
 export default function App() {
   const [data, setData] = useState<BootstrapData | null>(null)
   const [view, setView] = useState<View>('today')
+  const [activityDate, setActivityDate] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const e2eMode = new URLSearchParams(window.location.search).has('e2e')
@@ -146,8 +147,8 @@ export default function App() {
           </div>
         </header>
         {error && <div className="error-banner"><strong>操作未完成</strong>{error}<button onClick={() => setError('')}>×</button></div>}
-        {view === 'today' && <Today data={data} busy={busy} setView={setView} run={run} setActivity={setActivity} onReload={load} />}
-        {view === 'activities' && <ActivityDetailsView initialDate={data.date} onActivity={setActivity} />}
+        {view === 'today' && <Today data={data} busy={busy} setView={setView} setActivityDate={setActivityDate} run={run} setActivity={setActivity} onReload={load} />}
+        {view === 'activities' && <ActivityDetailsView key={activityDate || data.date} initialDate={activityDate || data.date} onActivity={setActivity} />}
         {view === 'insights' && <InsightsView />}
         {view === 'plan' && <Plan data={data} busy={busy} run={run} onReload={load} />}
         {view === 'review' && <ReviewView data={data} busy={busy} run={run} onReload={load} />}
@@ -163,16 +164,20 @@ function Nav({ active, onClick, label, badge }: { active: boolean; onClick: () =
   return <button className={active ? 'active' : ''} onClick={onClick}><span>{label}</span>{badge && <em>{badge}</em>}</button>
 }
 
-function Today({ data, busy, setView, run, setActivity, onReload }: {
+function Today({ data, busy, setView, setActivityDate, run, setActivity, onReload }: {
   data: BootstrapData
   busy: string
   setView: (view: View) => void
+  setActivityDate: (date: string) => void
   run: (name: string, action: () => Promise<void>) => Promise<void>
   setActivity: (activity: ActivitySummary) => void
   onReload: () => Promise<void>
 }) {
   void onReload
-  return <TodayDashboard data={data} busy={busy} onView={setView} run={run} onActivity={setActivity} />
+  return <TodayDashboard data={data} busy={busy} onView={setView} onOpenActivityDate={(date) => {
+    setActivityDate(date)
+    setView('activities')
+  }} run={run} onActivity={setActivity} />
 }
 
 function Plan({ data, busy, run, onReload }: { data: BootstrapData; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; onReload: () => Promise<void> }) {

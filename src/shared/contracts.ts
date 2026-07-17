@@ -344,6 +344,8 @@ export interface Diagnostics {
   activityWatch: { ok: boolean; detail: string }
   windowWatcher: { ok: boolean; detail: string }
   afkWatcher: { ok: boolean; detail: string }
+  diskSpace: { ok: boolean; detail: string }
+  collectorRecovery: { ok: boolean; detail: string }
   storage: { ok: boolean; detail: string }
   codexCli: { ok: boolean; detail: string }
   codexContext: { ok: boolean; detail: string }

@@ -80,7 +80,6 @@ export default function App() {
 
   useEffect(() => {
     void load()
-    if (e2eMode) return
     const timer = setInterval(async () => {
       try {
         const activity = await window.timeEfficiency.refreshActivity()
@@ -88,7 +87,7 @@ export default function App() {
       } catch {
         // The visible status remains the last confirmed state.
       }
-    }, 15_000)
+    }, e2eMode ? 1_000 : 15_000)
     return () => clearInterval(timer)
   }, [e2eMode])
 
@@ -226,7 +225,7 @@ function ReviewView({ data, busy, run, onReload }: { data: BootstrapData; busy: 
 
 function DiagnosticsView({ initial, busy, run }: { initial: Diagnostics; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void> }) {
   const [items, setItems] = useState(initial)
-  return <section className="panel"><div className="panel-head"><div><p className="eyebrow">NO FAKE GREEN LIGHTS</p><h2>真实链路状态</h2></div><button className="secondary" disabled={busy === 'diagnostics'} onClick={() => run('diagnostics', async () => setItems(await window.timeEfficiency.getDiagnostics()))}>{busy === 'diagnostics' ? '检测中…' : '重新检测'}</button></div><div className="diagnostics">{Object.entries(items).map(([key, value]) => <div key={key}><span className={value.ok ? 'ok' : 'bad'}>{value.ok ? '✓' : '!'}</span><div><strong>{({ activityWatch: 'ActivityWatch 服务', windowWatcher: '窗口采集桶', afkWatcher: 'AFK 采集桶', storage: '本地数据', codexCli: 'Codex CLI', codexContext: 'Codex 项目识别', launchAtLogin: 'Windows 自启动' } as Record<string, string>)[key]}</strong><small>{value.detail}</small></div></div>)}</div></section>
+  return <section className="panel"><div className="panel-head"><div><p className="eyebrow">NO FAKE GREEN LIGHTS</p><h2>真实链路状态</h2></div><button className="secondary" disabled={busy === 'diagnostics'} onClick={() => run('diagnostics', async () => setItems(await window.timeEfficiency.getDiagnostics()))}>{busy === 'diagnostics' ? '检测中…' : '重新检测'}</button></div><div className="diagnostics">{Object.entries(items).map(([key, value]) => <div key={key}><span className={value.ok ? 'ok' : 'bad'}>{value.ok ? '✓' : '!'}</span><div><strong>{({ activityWatch: 'ActivityWatch 数据链路', windowWatcher: '窗口采集桶', afkWatcher: 'AFK 采集桶', diskSpace: '系统盘空间', collectorRecovery: '采集器自动恢复', storage: '本地数据', codexCli: 'Codex CLI', codexContext: 'Codex 项目识别', launchAtLogin: 'Windows 自启动' } as Record<string, string>)[key]}</strong><small>{value.detail}</small></div></div>)}</div></section>
 }
 
 function SettingsView({ settings, activity, busy, run, setSettings, setActivity, onReload }: { settings: Settings; activity: ActivitySummary; busy: string; run: (name: string, action: () => Promise<void>) => Promise<void>; setSettings: (settings: Settings) => void; setActivity: (activity: ActivitySummary) => void; onReload: () => Promise<void> }) {

@@ -50,6 +50,7 @@ async function launch() {
 }
 
 let app = await launch()
+let linkedProjectLabel = null
 try {
   const runningStatus = app.page.getByText('正在真实记录', { exact: true })
   const pausedStatus = app.page.getByText('采集已暂停', { exact: true })
@@ -249,7 +250,7 @@ try {
   await app.page.locator('.outcome-input input[type="radio"]').nth(0).check()
   const firstProjectChip = app.page.locator('.plan-outcome-card').nth(0).locator('.project-picker label').first()
   const hasKnownProject = Boolean(await firstProjectChip.count())
-  const linkedProjectLabel = hasKnownProject ? (await firstProjectChip.innerText()).trim() : null
+  linkedProjectLabel = hasKnownProject ? (await firstProjectChip.innerText()).trim() : null
   if (hasKnownProject && !await firstProjectChip.locator('input').isChecked()) await firstProjectChip.click()
   await app.page.getByRole('button', { name: /确认，开始今天|更新今日计划/ }).click()
   await app.page.getByRole('button', { name: /更新今日计划/ }).waitFor()
@@ -335,7 +336,12 @@ try {
   const persistedOutcome = app.page.locator('.outcome-input input:last-child').nth(0)
   await persistedOutcome.waitFor()
   assert.equal(await persistedOutcome.inputValue(), '交付真实时间效率闭环')
-  assert.ok(await app.page.locator('.plan-outcome-card').nth(0).locator('.project-picker label.selected').count(), 'outcome project link did not survive restart')
+  const persistedProjectLinks = await app.page.locator('.plan-outcome-card').nth(0).locator('.project-picker label.selected').count()
+  if (linkedProjectLabel) {
+    assert.ok(persistedProjectLinks, 'outcome project link did not survive restart')
+  } else {
+    assert.equal(persistedProjectLinks, 0, 'restart invented a project link when no known project was available')
+  }
   await app.page.getByRole('button', { name: /^晚间复盘/ }).first().click()
   assert.equal(await app.page.locator('textarea').inputValue(), '完成了真实采集、持久化和界面链路。')
   record('Restart persistence', 'morning plan and evening review survived app restart')

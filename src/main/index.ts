@@ -24,6 +24,7 @@ import { localDateKey, recentDateKeys, reminderState } from './date'
 import { AppStore } from './store'
 import { applyWidgetMode, widgetBounds, WIDGET_SIZE } from './floating-window'
 import { buildAggregatedCsv, createBackupEnvelope, parseBackupEnvelope } from './backup-service'
+import { WorkActivityFactsCache } from './work-activity-facts-cache'
 
 let window: BrowserWindow | null = null
 let widgetWindow: BrowserWindow | null = null
@@ -31,13 +32,13 @@ let tray: Tray | null = null
 let quitting = false
 let store: AppStore
 let activityWatch: ActivityWatchManager
+let workActivityFactsCache: WorkActivityFactsCache
 let codexContextTracker: CodexContextTracker
 let widgetPositionTimer: NodeJS.Timeout | null = null
 const notified = new Set<string>()
 const e2eMode = process.env.TIME_EFFICIENCY_E2E === '1'
 const startHidden = process.argv.includes('--hidden')
 const workActivityCache = new Map<WorkActivityMode, { expiresAt: number; value: WorkActivityDashboard }>()
-let dailyWorkFactsCache: { expiresAt: number; value: Awaited<ReturnType<ActivityWatchManager['getDailyActiveDurations']>> } | null = null
 
 function runtimeRoot(): string {
   return app.isPackaged ? join(process.resourcesPath, 'activitywatch') : join(app.getAppPath(), 'runtime', 'activitywatch')
@@ -200,10 +201,11 @@ function applyLaunchAtLogin(enabled: boolean): void {
 
 async function diagnostics() {
   const settings = store.getSettings()
-  const [server, windowWatcher, afkWatcher, codex] = await Promise.all([
+  const [server, windowWatcher, afkWatcher, diskSpace, codex] = await Promise.all([
     activityWatch.health(),
     activityWatch.bucketHealth('currentwindow'),
     activityWatch.bucketHealth('afkstatus'),
+    Promise.resolve(activityWatch.diskHealth()),
     codexDiagnostics()
   ])
   const login = app.getLoginItemSettings()
@@ -215,6 +217,8 @@ async function diagnostics() {
     activityWatch: server,
     windowWatcher,
     afkWatcher,
+    diskSpace,
+    collectorRecovery: activityWatch.recoveryHealth(),
     storage: { ok: true, detail: store.path },
     codexCli: codex,
     codexContext: {
@@ -281,7 +285,6 @@ function periodDateKeys(mode: WorkActivityMode, now = new Date()): string[] {
 
 function invalidateWorkActivityCache(): void {
   workActivityCache.clear()
-  dailyWorkFactsCache = null
 }
 
 async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivityDashboard> {
@@ -293,13 +296,11 @@ async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivi
   let error: string | null = null
   let facts
   try {
-    if (!dailyWorkFactsCache || dailyWorkFactsCache.expiresAt <= Date.now()) {
-      dailyWorkFactsCache = {
-        expiresAt: Date.now() + 5 * 60_000,
-        value: await activityWatch.getDailyActiveDurations(chartDates)
-      }
-    }
-    facts = dailyWorkFactsCache.value
+    facts = await workActivityFactsCache.resolve(
+      chartDates,
+      today,
+      (dates) => activityWatch.getDailyActiveDurations(dates)
+    )
   } catch (cause) {
     available = false
     error = cause instanceof Error ? cause.message : String(cause)
@@ -610,20 +611,19 @@ else {
   app.on('second-instance', showWindow)
   app.whenReady().then(async () => {
     store = new AppStore(join(app.getPath('userData'), 'time-efficiency-data.json'))
+    workActivityFactsCache = new WorkActivityFactsCache(join(app.getPath('userData'), 'work-activity-facts-v1.json'))
     activityWatch = new ActivityWatchManager(runtimeRoot())
     codexContextTracker = new CodexContextTracker(activityWatch, new CodexAppServerClient(), store)
     const settings = store.getSettings()
     applyLaunchAtLogin(settings.launchAtLogin)
     registerIpc()
-    try {
-      await activityWatch.ensureStarted(settings.trackingEnabled)
-    } catch (error) {
-      console.error('ActivityWatch startup failed:', error)
-    }
     codexContextTracker.start(() => localDateKey())
     createWindow()
     createWidgetWindow()
     if (!e2eMode) createTray()
+    void activityWatch.ensureStarted(settings.trackingEnabled)
+      .catch((error) => console.error('ActivityWatch startup failed:', error))
+      .finally(() => activityWatch.startMonitoring())
     if (!e2eMode) {
       checkReminders()
       setInterval(checkReminders, 60_000)

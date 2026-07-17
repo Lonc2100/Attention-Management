@@ -1,6 +1,6 @@
-import { existsSync, readdirSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { existsSync, readdirSync, statfsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, join } from 'node:path'
 import type {
   ActivityEvent,
   ActivityDetails,
@@ -17,18 +17,30 @@ import { aggregateActivity, disconnectedSummary } from './aggregate'
 import { classifyActivityDay } from './classification'
 import { dayBounds } from './date'
 import { identityForSample } from './project-attribution'
+import { launchActivityWatchProcess, type ActivityWatchChild } from './activitywatch-process'
+import {
+  CollectorRecoveryPolicy,
+  CRITICAL_DISK_BYTES,
+  DISK_WARNING_BYTES,
+  type RecoveryAction
+} from './collector-recovery'
 
 interface Bucket {
   id: string
   type: string
   hostname?: string
   client?: string
+  created?: string
   last_updated?: string
+  metadata?: {
+    start?: string
+    end?: string
+  }
 }
 
 interface ManagedProcess {
   name: string
-  process: ChildProcessWithoutNullStreams
+  process: ActivityWatchChild
 }
 
 export interface CurrentActivityState {
@@ -36,6 +48,16 @@ export interface CurrentActivityState {
   title: string
   isAfk: boolean
   fresh?: boolean
+}
+
+interface ActivityWatchManagerOptions {
+  now?: () => number
+  freeDiskBytes?: () => number
+}
+
+interface HealthResult {
+  ok: boolean
+  detail: string
 }
 
 const API = 'http://127.0.0.1:5600/api/0'
@@ -72,9 +94,26 @@ async function waitForServer(timeoutMs = 20_000): Promise<void> {
 
 export class ActivityWatchManager {
   private owned: ManagedProcess[] = []
+  private readonly stopping = new WeakSet<ActivityWatchChild>()
+  private readonly recoveryPolicy = new CollectorRecoveryPolicy()
+  private readonly now: () => number
+  private readonly freeDiskBytes: () => number
+  private readonly startedAt: number
   private tracking = true
+  private serverOwnedByApp = false
+  private processFault: string | null = null
+  private monitorTimer: NodeJS.Timeout | null = null
+  private maintenanceRunning = false
+  private recoveryStatus: HealthResult = { ok: true, detail: '尚未触发恢复' }
 
-  constructor(private readonly runtimeRoot: string) {}
+  constructor(private readonly runtimeRoot: string, options: ActivityWatchManagerOptions = {}) {
+    this.now = options.now ?? Date.now
+    this.freeDiskBytes = options.freeDiskBytes ?? (() => {
+      const stats = statfsSync(process.env.LOCALAPPDATA ?? homedir())
+      return Number(stats.bavail) * Number(stats.bsize)
+    })
+    this.startedAt = this.now()
+  }
 
   async ensureStarted(tracking: boolean): Promise<void> {
     this.tracking = tracking
@@ -89,11 +128,13 @@ export class ActivityWatchManager {
     if (!serverReady) {
       const server = findExecutable(this.runtimeRoot, ['aw-server.exe', 'aw-server-rust.exe'])
       if (!server) throw new Error(`ActivityWatch server 未找到：${this.runtimeRoot}`)
+      this.serverOwnedByApp = true
       this.startProcess('server', server)
       await waitForServer()
     }
 
     if (tracking) this.startWatchers()
+    this.processFault = null
   }
 
   async setTracking(enabled: boolean): Promise<void> {
@@ -153,10 +194,44 @@ export class ActivityWatchManager {
     const afkBucket = this.newestBucket(buckets, 'afkstatus')
     if (!windowBucket || !afkBucket) throw new Error('ActivityWatch 窗口或 AFK 数据源不可用')
 
+    const createdAt = Math.max(
+      Date.parse(windowBucket.created ?? ''),
+      Date.parse(afkBucket.created ?? '')
+    )
+    const knownZeros = new Map<string, DailyWorkActivity>()
+    const queryableDates = dates.filter((date) => {
+      if (!Number.isFinite(createdAt)) return true
+      const { end } = dayBounds(date)
+      if (Date.parse(end) > createdAt) return true
+      knownZeros.set(date, { date, activeSeconds: 0, observedSeconds: 0, available: true })
+      return false
+    })
+
+    const valuesByDate = new Map<string, DailyWorkActivity>()
+    for (let offset = 0; offset < queryableDates.length; offset += 31) {
+      const batch = queryableDates.slice(offset, offset + 31)
+      for (const value of await this.queryDailyActiveDurations(windowBucket.id, afkBucket.id, batch)) {
+        valuesByDate.set(value.date, value)
+      }
+    }
+    return dates.map((date) => knownZeros.get(date) ?? valuesByDate.get(date) ?? {
+      date,
+      activeSeconds: 0,
+      observedSeconds: 0,
+      available: false
+    })
+  }
+
+  private async queryDailyActiveDurations(
+    windowBucketId: string,
+    afkBucketId: string,
+    dates: string[]
+  ): Promise<DailyWorkActivity[]> {
+    if (dates.length === 0) return []
     const query = [
-      `events = flood(query_bucket(${JSON.stringify(windowBucket.id)}));`,
+      `events = flood(query_bucket(${JSON.stringify(windowBucketId)}));`,
       'observed_seconds = sum_durations(events);',
-      `not_afk = flood(query_bucket(${JSON.stringify(afkBucket.id)}));`,
+      `not_afk = flood(query_bucket(${JSON.stringify(afkBucketId)}));`,
       'not_afk = filter_keyvals(not_afk, "status", ["not-afk"]);',
       'active_events = filter_period_intersect(events, not_afk);',
       'RETURN = {"activeSeconds": sum_durations(active_events), "observedSeconds": observed_seconds};'
@@ -271,16 +346,70 @@ export class ActivityWatchManager {
       const response = await fetch(`${API}/info`, { signal: AbortSignal.timeout(1500) })
       if (!response.ok) return { ok: false, detail: `HTTP ${response.status}` }
       const info = (await response.json()) as { version?: string; hostname?: string }
-      return { ok: true, detail: `v${info.version ?? 'unknown'} · ${info.hostname ?? 'localhost'}` }
+      const data = await this.dataHealth()
+      return data.ok
+        ? { ok: true, detail: `v${info.version ?? 'unknown'} · ${data.detail}` }
+        : data
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) }
     }
   }
 
+  async dataHealth(requireFresh = false): Promise<HealthResult> {
+    if (this.processFault) return { ok: false, detail: this.processFault }
+    try {
+      const buckets = await this.getBuckets()
+      const required = ['currentwindow', 'afkstatus']
+        .map((type) => this.newestBucket(buckets, type))
+      if (required.some((bucket) => !bucket)) return { ok: false, detail: '窗口或 AFK 采集桶缺失' }
+      if (!this.tracking) return { ok: true, detail: '采集已暂停，数据桶可读取' }
+      if (!requireFresh && this.now() - this.startedAt < 60_000) return { ok: true, detail: '采集启动宽限期' }
+      const stale = required.find((bucket) => {
+        const updatedAt = this.bucketUpdatedAt(bucket)
+        return !Number.isFinite(updatedAt) || updatedAt < this.now() - this.freshnessLimitMs(bucket?.type)
+      })
+      if (stale) {
+        const seconds = this.freshnessLimitMs(stale.type) / 1000
+        return { ok: false, detail: `${stale.type} 超过 ${seconds} 秒没有新事件` }
+      }
+      return { ok: true, detail: '数据桶持续更新' }
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  diskHealth(): HealthResult & { freeBytes: number; critical: boolean } {
+    try {
+      const freeBytes = this.freeDiskBytes()
+      const gib = freeBytes / (1024 ** 3)
+      if (freeBytes < CRITICAL_DISK_BYTES) {
+        return { ok: false, critical: true, freeBytes, detail: `系统盘仅剩 ${gib.toFixed(1)} GiB，已暂停自动恢复` }
+      }
+      if (freeBytes < DISK_WARNING_BYTES) {
+        return { ok: false, critical: false, freeBytes, detail: `系统盘仅剩 ${gib.toFixed(1)} GiB，请尽快清理` }
+      }
+      return { ok: true, critical: false, freeBytes, detail: `系统盘可用 ${gib.toFixed(1)} GiB` }
+    } catch (error) {
+      return { ok: false, critical: false, freeBytes: Number.POSITIVE_INFINITY, detail: `无法读取磁盘空间：${error instanceof Error ? error.message : String(error)}` }
+    }
+  }
+
+  recoveryHealth(): HealthResult {
+    return this.recoveryStatus
+  }
+
   async bucketHealth(type: string): Promise<{ ok: boolean; detail: string }> {
     try {
       const bucket = this.newestBucket(await this.getBuckets(), type)
-      return bucket ? { ok: true, detail: bucket.id } : { ok: false, detail: `没有 ${type} 采集桶` }
+      if (!bucket) return { ok: false, detail: `没有 ${type} 采集桶` }
+      if (this.tracking && this.now() - this.startedAt >= 60_000) {
+        const updatedAt = this.bucketUpdatedAt(bucket)
+        const freshnessLimitMs = this.freshnessLimitMs(bucket.type)
+        if (!Number.isFinite(updatedAt) || updatedAt < this.now() - freshnessLimitMs) {
+          return { ok: false, detail: `${bucket.id} 超过 ${freshnessLimitMs / 1000} 秒没有更新` }
+        }
+      }
+      return { ok: true, detail: bucket.id }
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) }
     }
@@ -313,7 +442,40 @@ export class ActivityWatchManager {
   }
 
   stopAll(): void {
+    if (this.monitorTimer) clearInterval(this.monitorTimer)
+    this.monitorTimer = null
     this.stopOwned(this.owned.map((item) => item.name))
+    this.serverOwnedByApp = false
+  }
+
+  startMonitoring(intervalMs = 30_000): void {
+    if (this.monitorTimer) return
+    this.monitorTimer = setInterval(() => void this.maintain(), intervalMs)
+  }
+
+  async maintain(): Promise<void> {
+    if (this.maintenanceRunning) return
+    this.maintenanceRunning = true
+    try {
+      const [data, disk] = await Promise.all([this.dataHealth(), Promise.resolve(this.diskHealth())])
+      const decision = this.recoveryPolicy.evaluate({
+        healthy: data.ok,
+        freeBytes: disk.freeBytes,
+        ownsServer: this.serverOwnedByApp,
+        now: this.now()
+      })
+      this.recoveryStatus = this.describeRecovery(decision.action, decision.retryAfterMs, data.detail)
+      if (decision.action !== 'restart') return
+      await this.stopOwnedAndWait(['window', 'afk', 'server'])
+      await this.waitForServerDown()
+      await this.ensureStarted(this.tracking)
+      await this.waitForFreshData()
+      this.recoveryStatus = { ok: true, detail: '采集器已受控重启并恢复新事件' }
+    } catch (error) {
+      this.recoveryStatus = { ok: false, detail: `自动恢复失败：${error instanceof Error ? error.message : String(error)}` }
+    } finally {
+      this.maintenanceRunning = false
+    }
   }
 
   private startWatchers(): void {
@@ -327,14 +489,15 @@ export class ActivityWatchManager {
   }
 
   private startProcess(name: string, executable: string): void {
-    const child = spawn(executable, [], {
-      cwd: dirname(executable),
-      windowsHide: true,
-      stdio: 'pipe'
-    })
-    child.stderr.on('data', (chunk) => console.error(`[ActivityWatch:${name}]`, chunk.toString()))
-    child.on('exit', () => {
-      this.owned = this.owned.filter((item) => item.process !== child)
+    const child = launchActivityWatchProcess({
+      name,
+      executable,
+      onExit: (code, signal) => {
+        this.owned = this.owned.filter((item) => item.process !== child)
+        if (!this.stopping.has(child) && this.tracking) {
+          this.processFault = `${name} 进程意外退出（code=${code ?? 'null'}, signal=${signal ?? 'none'}）`
+        }
+      }
     })
     this.owned.push({ name, process: child })
     console.log(`Started ActivityWatch ${name}: ${basename(executable)}`)
@@ -343,9 +506,31 @@ export class ActivityWatchManager {
   private stopOwned(names: string[]): void {
     const set = new Set(names)
     for (const item of this.owned.filter((candidate) => set.has(candidate.name))) {
+      this.stopping.add(item.process)
       item.process.kill()
     }
     this.owned = this.owned.filter((item) => !set.has(item.name))
+  }
+
+  private async stopOwnedAndWait(names: string[]): Promise<void> {
+    const set = new Set(names)
+    const targets = this.owned.filter((candidate) => set.has(candidate.name))
+    for (const item of targets) {
+      this.stopping.add(item.process)
+      item.process.kill()
+    }
+    this.owned = this.owned.filter((item) => !set.has(item.name))
+    await Promise.all(targets.map(async (item) => {
+      if (item.process.exitCode !== null && item.process.exitCode !== undefined) return
+      const exited = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), 1500)
+        item.process.once('exit', () => {
+          clearTimeout(timer)
+          resolve(true)
+        })
+      })
+      if (!exited && item.process.exitCode === null) item.process.kill('SIGKILL')
+    }))
   }
 
   private async getBuckets(): Promise<Bucket[]> {
@@ -358,7 +543,22 @@ export class ActivityWatchManager {
   private newestBucket(buckets: Bucket[], type: string): Bucket | undefined {
     return buckets
       .filter((bucket) => bucket.type === type)
-      .sort((a, b) => (b.last_updated ?? '').localeCompare(a.last_updated ?? ''))[0]
+      .sort((a, b) => this.bucketUpdatedAt(b) - this.bucketUpdatedAt(a))[0]
+  }
+
+  private bucketUpdatedAt(bucket: Bucket | undefined): number {
+    if (!bucket) return Number.NEGATIVE_INFINITY
+    for (const value of [bucket.metadata?.end, bucket.last_updated, bucket.created]) {
+      const parsed = Date.parse(value ?? '')
+      if (Number.isFinite(parsed)) return parsed
+    }
+    return Number.NEGATIVE_INFINITY
+  }
+
+  private freshnessLimitMs(type: string | undefined): number {
+    // AFK events are written after the idle transition and can legitimately
+    // remain unchanged for the configured idle timeout (normally 3 minutes).
+    return type === 'afkstatus' ? 300_000 : 120_000
   }
 
   private async getEvents(bucketId: string, date: string): Promise<ActivityEvent[]> {
@@ -382,5 +582,40 @@ export class ActivityWatchManager {
 
   private eventEnd(event: ActivityEvent): number {
     return new Date(event.timestamp).getTime() + event.duration * 1000
+  }
+
+  private async waitForServerDown(): Promise<void> {
+    const deadline = Date.now() + 3000
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(`${API}/info`, { signal: AbortSignal.timeout(350) })
+        if (!response.ok) return
+      } catch {
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    }
+  }
+
+  private async waitForFreshData(): Promise<void> {
+    if (!this.tracking) return
+    const deadline = Date.now() + 15_000
+    let last = '等待采集桶更新'
+    while (Date.now() < deadline) {
+      const health = await this.dataHealth(true)
+      if (health.ok) return
+      last = health.detail
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    throw new Error(`受控重启后仍无新事件：${last}`)
+  }
+
+  private describeRecovery(action: RecoveryAction, retryAfterMs: number, detail: string): HealthResult {
+    if (action === 'healthy') return { ok: true, detail: '采集链路健康' }
+    if (action === 'wait') return { ok: false, detail: `检测到异常，等待连续确认：${detail}` }
+    if (action === 'external') return { ok: false, detail: `外部 ActivityWatch 异常，不自动结束其进程：${detail}` }
+    if (action === 'blocked-disk') return { ok: false, detail: '磁盘空间已到临界值，禁止重启风暴' }
+    if (action === 'cooldown') return { ok: false, detail: `恢复退避中，约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试` }
+    return { ok: false, detail: '达到恢复阈值，正在受控重启采集器' }
   }
 }

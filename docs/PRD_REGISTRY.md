@@ -4,6 +4,7 @@
 
 | 版本 | 标题 | 需求内容 | PRD 链接 |
 |---|---|---|---|
+| PRD-v0.7.2 | 采集可靠性热修复 | 修复 ActivityWatch 子进程 stdout 背压；将全年查询改为 31 日上限和派生缓存；增加事件新鲜度、磁盘预警、进程退出与仅限自有进程的退避恢复。 | [查看 PRD](../.trellis/tasks/07-17-v0-7-2-collector-reliability/prd.md) |
 | PRD-v0.7.1 | 首页信息层级收敛 | 删除重复大标题、顶部次要指标和长成果说明，将当前项目、今日投入、优先成果及记录状态压缩为单条状态栏；宽屏并排展示工作活动热力图与注意力圆环。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-16-v0-7-1-dashboard-hierarchy/prd.md) |
 | PRD-v0.7.0 | 首页工作活动与安静悬浮胶囊 | 首页融合近一年每日/每周/每月实际电脑投入、成果注意力与周期成果指标；悬浮窗缩至低干扰尺寸。统计明确区分电脑投入、成果证据和效率判断。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-16-v0-7-home-work-activity/prd.md) |
 | PRD-v0.6.0 | Windows 对外测试准备 | 首次启动说明、派生数据隐私排除、本地备份恢复、聚合 CSV、脱敏诊断及未签名/无自动更新的真实边界；不改写或自动备份 ActivityWatch 原始 bucket。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-15-07-15-v0-6-external-beta-readiness/prd.md) |

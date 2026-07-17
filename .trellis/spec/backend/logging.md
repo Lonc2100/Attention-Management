@@ -6,6 +6,13 @@
 
 ## Logging Guidelines
 
+### Child Process Output Must Not Backpressure
+
+- Never launch a long-running child with `stdout: 'pipe'` unless the parent continuously consumes that stream.
+- ActivityWatch already persists its own logs, so its stdout is ignored and stderr is consumed for immediate failures.
+- Every managed child must register both `error` and `exit` observers; process existence or an open port is not a health signal.
+- Do not automatically terminate a process merely because its executable name or port matches. Lifecycle mutation requires explicit in-process ownership.
+
 ### Use Structured Logging
 
 ```typescript

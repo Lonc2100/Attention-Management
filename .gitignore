@@ -9,4 +9,5 @@ runtime/*.zip
 tests/.data/
 tests/.artifacts/
 *.log
+.trellis/tasks/**/evidence/activitywatch-v0.14.0b1/
 .DS_Store

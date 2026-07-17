@@ -10,7 +10,7 @@
 - [x] S6 Integrate non-blocking startup, periodic monitoring and shutdown cleanup.
 - [x] S7 Evaluate ActivityWatch v0.14.0b1 in isolation; record decision without silently changing runtime.
 - [x] S8 Run full validation, package, smoke, upgrade, retention, autostart and reliability soak.
-- [ ] S9 Update PRD registry, roadmap, release notes, Trellis specs, task journal and version metadata.
+- [x] S9 Update PRD registry, roadmap, release notes, Trellis specs, task journal and version metadata.
 
 ## Public Interfaces Under Test
 

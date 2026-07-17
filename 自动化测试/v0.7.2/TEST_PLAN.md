@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-- PRD: `.trellis/tasks/07-17-v0-7-2-collector-reliability/prd.md`
+- PRD: `.trellis/tasks/archive/2026-07/07-17-v0-7-2-collector-reliability/prd.md`
 - In scope: child I/O, bounded history queries, derived cache, data health, disk guard, restart policy, startup lifecycle, diagnostics and installed reliability.
 - Out of scope: UI redesign, cloud telemetry, code signing, macOS and destructive raw-data recovery.
 

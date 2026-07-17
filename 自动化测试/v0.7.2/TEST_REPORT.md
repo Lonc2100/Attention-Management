@@ -3,7 +3,7 @@
 ## 1. Summary
 
 - Date: 2026-07-17
-- PRD: `.trellis/tasks/07-17-v0-7-2-collector-reliability/prd.md`
+- PRD: `.trellis/tasks/archive/2026-07/07-17-v0-7-2-collector-reliability/prd.md`
 - Result: PASS
 
 ## 2. Commands and Results

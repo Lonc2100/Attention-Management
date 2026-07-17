@@ -205,3 +205,37 @@ Translated the GSAP-inspired editorial core into finite desktop UI tokens and co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: v0.7.2 collector reliability hotfix
+
+**Date**: 2026-07-17
+**Task**: v0.7.2 collector reliability hotfix
+**Branch**: `main`
+
+### Summary
+
+修复 ActivityWatch stdout 背压和全年查询压力，增加派生缓存、事件新鲜度、磁盘保护、受控恢复与故障注入验证；完成 73 项测试、两轮 E2E、打包 smoke、真实升级安装、自启动验证及 15 分钟 soak。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ee7691f` | (see git log) |
+| `88c3f4e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -270,3 +270,41 @@ Translated the GSAP-inspired editorial core into finite desktop UI tokens and co
 ### Next Steps
 
 - 在日常使用中观察 6 小时默认主要休息阈值；误判可在活动明细中人工调整并反馈。
+
+
+## Session 9: v0.7.4 低交互时间与统一统计口径
+
+**Date**: 2026-07-19
+**Task**: v0.7.4 idle confidence
+**Branch**: `main`
+
+### Summary
+
+把短暂无键鼠输入从“确定离开”改为可解释的低交互推定工作，默认以 15 分钟区分主要离开；所有统计入口统一口径，并支持逐段人工计入和撤销。
+
+### Main Changes
+
+- 增加统一 idle policy、schema v8、缓存 policy key、阈值设置和可逆 idle override。
+- 首页、活动明细、全年工作活动、个人规律和 Codex 项目使用同一 Query API 数据流。
+- 保留用户确认的午饭主要离开，恢复约 1 小时 9 分的短时低交互投入。
+- 增加 ActivityWatch AFK 桶缺失时保留窗口数据的降级路径，避免错误归零。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8af2cab` | fix: correct low-interaction work time |
+
+### Testing
+
+- 84 项自动化测试通过；3 项外部 Codex 集成测试按设计跳过。
+- 冻结代码后连续两轮 Electron E2E 各 17 项通过；安装包 smoke 通过。
+- 真实 v0.7.3/schema 7 → v0.7.4/schema 8 覆盖升级完成，6 个记录日、4 个上下文日和登录自启动均保留。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在日常使用中观察默认 15 分钟阈值；主要离开误判可在活动明细中逐段纠正。

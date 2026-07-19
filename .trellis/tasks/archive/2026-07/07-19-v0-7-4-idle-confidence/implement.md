@@ -7,4 +7,4 @@
 - [x] 增加单段“计入工作/撤销”交互。
 - [x] 统一首页、明细、热力图、个人规律与 Codex 实时状态。
 - [x] 完成自动化、两轮 E2E、真实数据、打包升级验证。
-- [ ] 更新发布文档、Trellis、commit/tag/push。
+- [x] 更新发布文档、Trellis、commit/tag/push。

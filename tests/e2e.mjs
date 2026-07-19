@@ -96,8 +96,14 @@ try {
     const workActivityBox = await app.page.getByTestId('work-activity-module').boundingBox()
     assert.ok(workActivityBox && workActivityBox.y < height, `work activity module was not visible at ${width}x${height}`)
     if (width >= 1440) {
+      await app.page.waitForFunction(() => {
+        const work = document.querySelector('[data-testid="work-activity-module"]')?.getBoundingClientRect()
+        const attention = document.querySelector('[data-testid="attention-overview"]')?.getBoundingClientRect()
+        return Boolean(work && attention && Math.abs(work.top - attention.top) < 4)
+      }, undefined, { timeout: 3_000 })
       const attentionBox = await app.page.getByTestId('attention-overview').boundingBox()
-      assert.ok(attentionBox && Math.abs(attentionBox.y - workActivityBox.y) < 4, `dashboard charts did not share the wide-screen data row at ${width}x${height}`)
+      const settledWorkActivityBox = await app.page.getByTestId('work-activity-module').boundingBox()
+      assert.ok(attentionBox && settledWorkActivityBox && Math.abs(attentionBox.y - settledWorkActivityBox.y) < 4, `dashboard charts did not share the wide-screen data row at ${width}x${height}`)
     }
     await app.page.mouse.move(350, 40)
     try {
@@ -115,6 +121,10 @@ try {
     const activeKey = await donutTarget.getAttribute('data-category-key')
     assert.ok(activeKey, 'donut target did not expose a category key')
     assert.ok(await app.page.locator(`[data-category-key="${activeKey}"][data-linked-active="true"]`).count() >= 2, 'donut hover did not link chart elements')
+    // Focus keeps the donut tooltip mounted. Clear it before exercising the
+    // timeline so waitFor cannot accidentally observe the previous tooltip.
+    await app.page.evaluate(() => document.activeElement?.blur())
+    await app.page.getByTestId('attention-tooltip').waitFor({ state: 'hidden' })
     const timelineSegments = app.page.locator('.timeline-segment')
     let widestSegment = null
     for (let index = 0; index < await timelineSegments.count(); index += 1) {
@@ -159,14 +169,21 @@ try {
   await app.page.getByRole('button', { name: '活动明细' }).click()
   await app.page.locator('.activity-workspace').waitFor()
   await app.page.locator('.activity-timeline-card').waitFor()
+  const boundaryBar = app.page.locator('.workday-boundary-bar')
+  await boundaryBar.waitFor()
+  await boundaryBar.getByRole('button', { name: '调整边界' }).click()
+  const boundaryInput = boundaryBar.getByLabel('工作日开始时间')
+  assert.match(await boundaryInput.inputValue(), /^\d{2}:\d{2}$/, 'workday boundary editor did not preload a valid time')
+  await boundaryBar.getByRole('button', { name: '保存' }).click()
+  await app.page.getByText('工作日边界已更新', { exact: false }).waitFor()
+  await boundaryBar.getByText('人工确认', { exact: true }).waitFor()
+  await boundaryBar.getByRole('button', { name: '恢复自动' }).click()
+  await app.page.getByText('已恢复自动判断', { exact: false }).waitFor()
   const activityRows = app.page.locator('.activity-list > button')
   if (await activityRows.count()) {
-    const displayedStarts = await activityRows.evaluateAll((rows) => rows.map((row) => row.querySelector('time')?.textContent?.split('–')[0] ?? ''))
-    const minutes = displayedStarts.map((value) => {
-      const [hour, minute] = value.split(':').map(Number)
-      return hour * 60 + minute
-    })
-    assert.deepEqual(minutes, [...minutes].sort((a, b) => b - a), 'activity list did not show newest entries first')
+    const displayedEnds = await activityRows.evaluateAll((rows) => rows.map((row) => Date.parse(row.getAttribute('data-end') ?? '')))
+    assert.ok(displayedEnds.every(Number.isFinite), 'activity list did not expose exact end timestamps')
+    assert.deepEqual(displayedEnds, [...displayedEnds].sort((a, b) => b - a), 'activity list did not show newest entries first')
     await activityRows.first().click()
     await app.page.locator('.evidence-card').waitFor()
     assert.ok((await app.page.locator('.evidence-card').innerText()).length > 20, 'activity evidence drawer was empty')
@@ -201,7 +218,7 @@ try {
   }
   await app.page.getByRole('button', { name: /归类规则/ }).click()
   await app.page.locator('.rule-manager').waitFor()
-  record('Activity details', 'timeline, evidence drawer, reversible correction, learned rule creation/deletion, filters, and rule manager rendered')
+  record('Activity details', 'workday boundary override, timeline, evidence drawer, reversible correction, learned rule creation/deletion, filters, and rule manager rendered')
 
   await app.page.getByRole('button', { name: '今日概览' }).click()
 

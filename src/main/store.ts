@@ -3,8 +3,8 @@ import { dirname } from 'node:path'
 import type { ActivityOverride, ActivityRule, CodexContextSample, DailyRecord, Outcome, PrivacyRule, ProjectOption, Settings } from '../shared/contracts'
 import { emptyRecord } from './date'
 
-export type PersistedDataV6 = {
-  version: 6
+export type PersistedDataV7 = {
+  version: 7
   settings: Settings
   records: Record<string, DailyRecord>
   codexContextSamples: Record<string, CodexContextSample[]>
@@ -13,6 +13,8 @@ export type PersistedDataV6 = {
   activityOverrides: Record<string, ActivityOverride[]>
   manualProjects: Record<string, string>
   privacyRules: PrivacyRule[]
+  workdayBoundaryOverrides: Record<string, string>
+  lastResolvedWorkdayKey: string | null
 }
 type PersistedDataInput = {
   version?: number
@@ -24,6 +26,8 @@ type PersistedDataInput = {
   activityOverrides?: Record<string, ActivityOverride[]>
   manualProjects?: Record<string, string>
   privacyRules?: PrivacyRule[]
+  workdayBoundaryOverrides?: Record<string, string>
+  lastResolvedWorkdayKey?: string | null
 }
 
 const MAX_CONTEXT_SAMPLES_PER_DAY = 5_000
@@ -53,7 +57,7 @@ export const defaultSettings: Settings = {
 }
 
 export class AppStore {
-  private data: PersistedDataV6
+  private data: PersistedDataV7
   private migrationRequired = false
 
   constructor(private readonly filePath: string) {
@@ -227,6 +231,32 @@ export class AppStore {
     return structuredClone(this.data.privacyRules)
   }
 
+  getWorkdayBoundaryOverrides(): Record<string, string> {
+    return { ...this.data.workdayBoundaryOverrides }
+  }
+
+  setWorkdayBoundary(date: string, startsAt: string): Record<string, string> {
+    this.data.workdayBoundaryOverrides[date] = startsAt
+    this.save()
+    return this.getWorkdayBoundaryOverrides()
+  }
+
+  removeWorkdayBoundary(date: string): Record<string, string> {
+    delete this.data.workdayBoundaryOverrides[date]
+    this.save()
+    return this.getWorkdayBoundaryOverrides()
+  }
+
+  getLastResolvedWorkdayKey(): string | null {
+    return this.data.lastResolvedWorkdayKey
+  }
+
+  setLastResolvedWorkdayKey(date: string): void {
+    if (this.data.lastResolvedWorkdayKey === date) return
+    this.data.lastResolvedWorkdayKey = date
+    this.save()
+  }
+
   addPrivacyRule(rule: PrivacyRule): PrivacyRule[] {
     if (!rule.app.trim() || !rule.titlePattern.trim()) throw new Error('隐私规则需要应用名和窗口标题条件')
     if (this.data.privacyRules.some((item) => item.id === rule.id)) throw new Error('隐私规则 ID 已存在')
@@ -249,7 +279,7 @@ export class AppStore {
     return this.getPrivacyRules()
   }
 
-  exportData(): PersistedDataV6 {
+  exportData(): PersistedDataV7 {
     return structuredClone(this.data)
   }
 
@@ -269,18 +299,18 @@ export class AppStore {
     this.save()
   }
 
-  private load(): PersistedDataV6 {
+  private load(): PersistedDataV7 {
     try {
       if (existsSync(this.filePath)) {
         const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as PersistedDataInput
-        this.migrationRequired = parsed.version !== 6
+        this.migrationRequired = parsed.version !== 7
         return this.hydrate(parsed)
       }
     } catch (error) {
       console.error('Failed to load app data:', error)
     }
     return {
-      version: 6,
+      version: 7,
       settings: { ...defaultSettings },
       records: {},
       codexContextSamples: {},
@@ -288,13 +318,15 @@ export class AppStore {
       classificationRules: [],
       activityOverrides: {},
       manualProjects: {},
-      privacyRules: []
+      privacyRules: [],
+      workdayBoundaryOverrides: {},
+      lastResolvedWorkdayKey: null
     }
   }
 
-  private hydrate(parsed: PersistedDataInput): PersistedDataV6 {
+  private hydrate(parsed: PersistedDataInput): PersistedDataV7 {
     return {
-      version: 6,
+      version: 7,
       settings: { ...defaultSettings, ...parsed.settings, aiProvider: 'codex-cli' },
       records: Object.fromEntries(Object.entries(parsed.records ?? {}).map(([date, record]) => [date, normalizeRecord(record)])),
       codexContextSamples: parsed.codexContextSamples ?? {},
@@ -302,7 +334,9 @@ export class AppStore {
       classificationRules: parsed.classificationRules ?? [],
       activityOverrides: parsed.activityOverrides ?? {},
       manualProjects: parsed.manualProjects ?? {},
-      privacyRules: Array.isArray(parsed.privacyRules) ? parsed.privacyRules.filter((rule): rule is PrivacyRule => Boolean(rule) && typeof rule.id === 'string' && typeof rule.app === 'string' && typeof rule.titlePattern === 'string' && typeof rule.enabled === 'boolean' && typeof rule.createdAt === 'number') : []
+      privacyRules: Array.isArray(parsed.privacyRules) ? parsed.privacyRules.filter((rule): rule is PrivacyRule => Boolean(rule) && typeof rule.id === 'string' && typeof rule.app === 'string' && typeof rule.titlePattern === 'string' && typeof rule.enabled === 'boolean' && typeof rule.createdAt === 'number') : [],
+      workdayBoundaryOverrides: Object.fromEntries(Object.entries(parsed.workdayBoundaryOverrides ?? {}).filter(([date, value]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof value === 'string' && Number.isFinite(Date.parse(value)))),
+      lastResolvedWorkdayKey: typeof parsed.lastResolvedWorkdayKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastResolvedWorkdayKey) ? parsed.lastResolvedWorkdayKey : null
     }
   }
 

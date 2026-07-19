@@ -103,5 +103,7 @@ describe('work activity aggregation', () => {
     expect(metrics.priorityPlanned).toBe(1)
     expect(metrics.reviewedDays).toBe(1)
     expect(metrics.linkedOutcomeDays).toBe(1)
+    expect(metrics.latestLeaveAt).toBe('2026-07-16T02:44:59.000Z')
+    expect(metrics.latestLeaveWorkday).toBe('2026-07-16')
   })
 })

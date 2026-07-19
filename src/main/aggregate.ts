@@ -202,9 +202,21 @@ function focusFromActivity(
   timeline: TimelineSlice[],
   attention: AttentionSlice[],
   codexContext: CodexContextStatus,
-  nowMs: number
+  nowMs: number,
+  liveState?: { isAfk: boolean; fresh?: boolean; startedAt?: string | null }
 ): FocusSnapshot {
   if (!tracking) return { status: 'paused', label: '记录已暂停', projectKey: null, app: null, startedAt: null, continuousSeconds: 0, projectTodaySeconds: 0 }
+  // The historical workday range deliberately ends at the last active event so
+  // a main rest is never counted as work. Keep the live AFK signal separate so
+  // the current-state card still tells the truth while the user is away.
+  if (liveState?.fresh && liveState.isAfk) {
+    const startedAt = liveState.startedAt ?? null
+    return {
+      status: 'afk', label: '已离开电脑', projectKey: null, app: null, startedAt,
+      continuousSeconds: startedAt ? Math.max(0, (nowMs - Date.parse(startedAt)) / 1000) : 0,
+      projectTodaySeconds: 0
+    }
+  }
   const containingAfk = [...timeline].reverse().find((slice) => slice.kind === 'afk'
     && Date.parse(slice.start) <= nowMs && Date.parse(slice.end) >= nowMs)
   if (containingAfk) return {
@@ -259,7 +271,8 @@ export function aggregateActivity(
   rules: ActivityRule[] = [],
   overrides: ActivityOverride[] = [],
   manualProjects: Record<string, string> = {},
-  privacyRules: PrivacyRule[] = []
+  privacyRules: PrivacyRule[] = [],
+  liveState?: { isAfk: boolean; fresh?: boolean; startedAt?: string | null }
 ): ActivitySummary {
   const currentAlias = codexContext.current ? projectAliases[codexContext.current.projectKey]?.trim() : ''
   const displayCodexContext: CodexContextStatus = currentAlias && codexContext.current
@@ -295,7 +308,7 @@ export function aggregateActivity(
     codexContext: displayCodexContext,
     timeline,
     attentionSlices,
-    focus: focusFromActivity(tracking, timeline, attentionSlices, displayCodexContext, nowMs),
+    focus: focusFromActivity(tracking, timeline, attentionSlices, displayCodexContext, nowMs, liveState),
     afkPeriods,
     recentEvents: [...windowEvents].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 100),
     error: null,

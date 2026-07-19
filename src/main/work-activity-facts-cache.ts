@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { DailyWorkActivity } from '../shared/work-activity'
 
 interface PersistedFacts {
-  version: 1
+  version: 2
   facts: Record<string, DailyWorkActivity>
 }
 
@@ -32,7 +32,10 @@ export class WorkActivityFactsCache {
     load: (dates: string[]) => Promise<DailyWorkActivity[]>
   ): Promise<DailyWorkActivity[]> {
     this.loadOnce()
-    const missing = dates.filter((date) => date === today || !this.facts.has(date))
+    const todayValue = new Date(`${today}T12:00:00`)
+    todayValue.setDate(todayValue.getDate() - 1)
+    const previous = `${todayValue.getFullYear()}-${String(todayValue.getMonth() + 1).padStart(2, '0')}-${String(todayValue.getDate()).padStart(2, '0')}`
+    const missing = dates.filter((date) => date === today || date === previous || !this.facts.has(date))
     if (missing.length > 0) {
       const loaded = await load(missing)
       for (const fact of loaded) {
@@ -54,7 +57,7 @@ export class WorkActivityFactsCache {
     if (!existsSync(this.filePath)) return
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<PersistedFacts>
-      if (parsed.version !== 1 || !parsed.facts || typeof parsed.facts !== 'object') return
+      if (parsed.version !== 2 || !parsed.facts || typeof parsed.facts !== 'object') return
       for (const [date, fact] of Object.entries(parsed.facts)) {
         if (validFact(fact) && fact.date === date) this.facts.set(date, fact)
       }
@@ -65,7 +68,7 @@ export class WorkActivityFactsCache {
 
   private persist(): void {
     const payload: PersistedFacts = {
-      version: 1,
+      version: 2,
       facts: Object.fromEntries(this.facts)
     }
     const temporary = `${this.filePath}.${process.pid}.${Date.now()}.tmp`

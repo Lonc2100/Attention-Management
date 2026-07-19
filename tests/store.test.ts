@@ -47,7 +47,7 @@ describe('local persistence', () => {
     expect(store.getSettings().morningReminder).toBe('08:45')
     expect(store.getCodexContextSamples('2026-07-14')).toEqual([])
     const migratedImmediately = JSON.parse(readFileSync(file, 'utf8')) as { version: number; codexContextSamples?: unknown; projectAliases?: unknown }
-    expect(migratedImmediately.version).toBe(6)
+    expect(migratedImmediately.version).toBe(7)
     expect(migratedImmediately.codexContextSamples).toEqual({})
     expect(migratedImmediately.projectAliases).toEqual({})
 
@@ -74,7 +74,7 @@ describe('local persistence', () => {
     ])
 
     const persisted = JSON.parse(readFileSync(file, 'utf8')) as { version: number }
-    expect(persisted.version).toBe(6)
+    expect(persisted.version).toBe(7)
   })
 
   it('migrates v2 settings with safe floating-widget defaults and persists placement', () => {
@@ -157,7 +157,7 @@ describe('local persistence', () => {
     expect(reloaded.getClassificationRules().map((rule) => rule.id)).toEqual(['rule-two', 'rule-one'])
     expect(reloaded.getActivityOverrides('2026-07-15')).toHaveLength(1)
     expect(reloaded.getManualProjects()).toEqual({ 'manual:media': '自媒体创作' })
-    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(6)
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(7)
 
     reloaded.removeActivityOverride('2026-07-15', 'override-one')
     reloaded.setClassificationRuleEnabled('rule-two', false)
@@ -201,7 +201,7 @@ describe('local persistence', () => {
     })
     expect(store.getClassificationRules()).toHaveLength(1)
     expect(store.getProjectAliases()).toEqual({ 'cwd:attention': '时间效率助手' })
-    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(6)
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(7)
   })
 
   it('creates a recovery checkpoint before replacing local data from a backup', () => {
@@ -213,6 +213,21 @@ describe('local persistence', () => {
     store.restoreData({ version: 6, settings: { eveningReminder: '20:30' }, records: {}, codexContextSamples: {}, projectAliases: {}, classificationRules: [], activityOverrides: {}, manualProjects: {}, privacyRules: [] }, recovery)
     expect(JSON.parse(readFileSync(recovery, 'utf8'))).toMatchObject({ records: { '2026-07-15': expect.any(Object) } })
     expect(store.getSettings().eveningReminder).toBe('20:30')
-    expect(store.exportData().version).toBe(6)
+    expect(store.exportData().version).toBe(7)
+  })
+
+  it('persists reversible workday boundaries and the last confirmed workday', () => {
+    const directory = join(process.cwd(), 'tests', '.data')
+    const file = join(directory, 'workday-v7.json')
+    writeFileSync(file, JSON.stringify({ version: 6, settings: {}, records: {} }), 'utf8')
+    const store = new AppStore(file)
+    store.setWorkdayBoundary('2026-07-19', '2026-07-19T02:00:00.000Z')
+    store.setLastResolvedWorkdayKey('2026-07-19')
+
+    const reloaded = new AppStore(file)
+    expect(reloaded.getWorkdayBoundaryOverrides()).toEqual({ '2026-07-19': '2026-07-19T02:00:00.000Z' })
+    expect(reloaded.getLastResolvedWorkdayKey()).toBe('2026-07-19')
+    reloaded.removeWorkdayBoundary('2026-07-19')
+    expect(reloaded.getWorkdayBoundaryOverrides()).toEqual({})
   })
 })

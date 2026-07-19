@@ -86,6 +86,9 @@ export function buildWorkPeriodMetrics(inputs: WorkPeriodInput[], _mode: WorkAct
   let priorityPlanned = 0
   let reviewedDays = 0
   let linkedOutcomeDays = 0
+  let latestLeaveAt: string | null = null
+  let latestLeaveWorkday: string | null = null
+  let latestLeaveOffset = Number.NEGATIVE_INFINITY
 
   for (const { record, activity } of inputs) {
     activeSeconds += Math.max(0, activity.activeSeconds)
@@ -100,6 +103,17 @@ export function buildWorkPeriodMetrics(inputs: WorkPeriodInput[], _mode: WorkAct
       if (record.review?.outcomeStatuses[record.priorityOutcomeId] === 'done') priorityCompleted += 1
     }
     if (record.review) reviewedDays += 1
+    const lastActive = activity.timeline
+      .filter((slice) => slice.kind !== 'afk')
+      .sort((a, b) => b.end.localeCompare(a.end))[0]?.end
+    if (lastActive) {
+      const offset = Date.parse(lastActive) - new Date(`${record.date}T00:00:00`).getTime()
+      if (Number.isFinite(offset) && offset > latestLeaveOffset) {
+        latestLeaveOffset = offset
+        latestLeaveAt = lastActive
+        latestLeaveWorkday = record.date
+      }
+    }
   }
 
   return {
@@ -112,6 +126,8 @@ export function buildWorkPeriodMetrics(inputs: WorkPeriodInput[], _mode: WorkAct
     priorityCompleted,
     priorityPlanned,
     reviewedDays,
-    linkedOutcomeDays
+    linkedOutcomeDays,
+    latestLeaveAt,
+    latestLeaveWorkday
   }
 }

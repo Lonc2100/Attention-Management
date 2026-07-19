@@ -30,6 +30,15 @@ function mondayKey(date: string): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
 }
 
+function leaveLabel(at: string | null, workday: string | null): string {
+  if (!at || !workday) return '暂无记录'
+  const value = new Date(at)
+  const base = new Date(`${workday}T00:00:00`)
+  const dayOffset = Math.floor((new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime() - base.getTime()) / 86_400_000)
+  const clock = value.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return `${dayOffset > 0 ? `次日${dayOffset > 1 ? ` +${dayOffset - 1}` : ''} ` : ''}${clock}`
+}
+
 type Tooltip = { cell: WorkActivityCell; x: number; y: number }
 
 export function WorkActivityModule({ onOpenDate }: { onOpenDate: (date: string) => void }) {
@@ -104,6 +113,7 @@ export function WorkActivityModule({ onOpenDate }: { onOpenDate: (date: string) 
         </div> : <div className={`work-activity__period-grid work-activity__period-grid--${mode}`}>{dashboard.cells.map((cell) => <div className="work-activity__period" key={cell.key}>{cellButton(cell)}<small>{mode === 'month' ? cell.startDate.slice(5, 7) + '月' : cell.startDate.slice(5).replace('-', '/')}</small></div>)}</div>}
         <div className="work-activity__legend"><span>少</span>{[0, 1, 2, 3, 4].map((level) => <i key={level} className={`work-activity__cell--level-${level}`} />)}<span>多</span></div>
       </div>
+      <div className="work-activity__leave"><span>{mode === 'day' ? '最近离开电脑' : '最晚离开电脑'}</span><strong>{leaveLabel(dashboard.metrics.latestLeaveAt, dashboard.metrics.latestLeaveWorkday)}</strong><small>依据最后一次非 AFK 前台活动，不等同于真实入睡时间</small></div>
       {!dashboard.available && <div className="work-activity__warning">ActivityWatch 暂不可用：{dashboard.error}</div>}
     </>}
     {tooltip && <div className="work-activity__tooltip" role="tooltip" style={{ left: tooltip.x, top: tooltip.y }}><strong>{dateLabel(tooltip.cell, mode)}</strong><span>{tooltip.cell.available ? duration(tooltip.cell.activeSeconds) : '数据不可用'}</span><small>{mode === 'day' ? '点击查看活动明细' : `${tooltip.cell.activeDays} 个有活动日`}</small></div>}

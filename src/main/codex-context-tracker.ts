@@ -51,10 +51,11 @@ export class CodexContextTracker {
     private readonly windowContext: WindowContextReader = new CodexWindowContextReader()
   ) {}
 
-  start(dateProvider: () => string, intervalMs = 5_000): void {
+  start(dateProvider: () => string | Promise<string>, intervalMs = 5_000): void {
     if (this.timer) return
-    void this.sample(dateProvider())
-    this.timer = setInterval(() => void this.sample(dateProvider()), intervalMs)
+    const sampleCurrentWorkday = async () => this.sample(await dateProvider())
+    void sampleCurrentWorkday()
+    this.timer = setInterval(() => void sampleCurrentWorkday(), intervalMs)
   }
 
   stop(): void {

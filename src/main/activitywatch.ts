@@ -10,12 +10,20 @@ import type {
   AfkNote,
   CodexContextSample,
   CodexContextStatus,
-  PrivacyRule
+  PrivacyRule,
+  WorkdayBoundaryInfo
 } from '../shared/contracts'
 import type { DailyWorkActivity } from '../shared/work-activity'
+import {
+  buildWorkdayModel,
+  currentWorkdayKey as modelCurrentWorkdayKey,
+  workdayRange,
+  type ActiveInterval,
+  type WorkdayModel
+} from '../shared/workday'
 import { aggregateActivity, disconnectedSummary } from './aggregate'
 import { classifyActivityDay } from './classification'
-import { dayBounds } from './date'
+import { dayBounds, localDateKey } from './date'
 import { identityForSample } from './project-attribution'
 import { launchActivityWatchProcess, type ActivityWatchChild } from './activitywatch-process'
 import {
@@ -48,6 +56,7 @@ export interface CurrentActivityState {
   title: string
   isAfk: boolean
   fresh?: boolean
+  startedAt?: string | null
 }
 
 interface ActivityWatchManagerOptions {
@@ -58,6 +67,12 @@ interface ActivityWatchManagerOptions {
 interface HealthResult {
   ok: boolean
   detail: string
+}
+
+interface ResolvedWorkday {
+  model: WorkdayModel
+  range: { start: number; end: number } | null
+  info: WorkdayBoundaryInfo | undefined
 }
 
 const API = 'http://127.0.0.1:5600/api/0'
@@ -105,6 +120,8 @@ export class ActivityWatchManager {
   private monitorTimer: NodeJS.Timeout | null = null
   private maintenanceRunning = false
   private recoveryStatus: HealthResult = { ok: true, detail: '尚未触发恢复' }
+  private lastResolvedWorkdayKey: string | null = null
+  private currentWorkdayCache: { expiresAt: number; overrideKey: string; value: string } | null = null
 
   constructor(private readonly runtimeRoot: string, options: ActivityWatchManagerOptions = {}) {
     this.now = options.now ?? Date.now
@@ -155,18 +172,24 @@ export class ActivityWatchManager {
     rules: ActivityRule[] = [],
     overrides: ActivityOverride[] = [],
     manualProjects: Record<string, string> = {},
-    privacyRules: PrivacyRule[] = []
+    privacyRules: PrivacyRule[] = [],
+    workdayOverrides: Record<string, string> = {}
   ): Promise<ActivitySummary> {
     try {
       await waitForServer(1500)
       const buckets = await this.getBuckets()
       const windowBucket = this.newestBucket(buckets, 'currentwindow')
       const afkBucket = this.newestBucket(buckets, 'afkstatus')
+      const resolved = await this.resolveWorkday(date, workdayOverrides, buckets)
       const [windowEvents, afkEvents] = await Promise.all([
-        windowBucket ? this.getEvents(windowBucket.id, date) : Promise.resolve([]),
-        afkBucket ? this.getEvents(afkBucket.id, date) : Promise.resolve([])
+        windowBucket && resolved.range ? this.getEventsRange(windowBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([]),
+        afkBucket && resolved.range ? this.getEventsRange(afkBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([])
       ])
-      return aggregateActivity(
+      const liveState = modelCurrentWorkdayKey(resolved.model, this.now()) === date
+        ? await this.getCurrentState()
+        : undefined
+      return {
+        ...aggregateActivity(
         windowEvents,
         afkEvents,
         notes,
@@ -179,14 +202,17 @@ export class ActivityWatchManager {
         rules,
         overrides,
         manualProjects,
-        privacyRules
-      )
+        privacyRules,
+        liveState
+        ),
+        workday: resolved.info
+      }
     } catch (error) {
       return disconnectedSummary(this.tracking, error)
     }
   }
 
-  async getDailyActiveDurations(dates: string[]): Promise<DailyWorkActivity[]> {
+  async getDailyActiveDurations(dates: string[], workdayOverrides: Record<string, string> = {}): Promise<DailyWorkActivity[]> {
     if (dates.length === 0) return []
     await waitForServer(1500)
     const buckets = await this.getBuckets()
@@ -194,74 +220,126 @@ export class ActivityWatchManager {
     const afkBucket = this.newestBucket(buckets, 'afkstatus')
     if (!windowBucket || !afkBucket) throw new Error('ActivityWatch 窗口或 AFK 数据源不可用')
 
-    const createdAt = Math.max(
-      Date.parse(windowBucket.created ?? ''),
-      Date.parse(afkBucket.created ?? '')
-    )
-    const knownZeros = new Map<string, DailyWorkActivity>()
-    const queryableDates = dates.filter((date) => {
-      if (!Number.isFinite(createdAt)) return true
-      const { end } = dayBounds(date)
-      if (Date.parse(end) > createdAt) return true
-      knownZeros.set(date, { date, activeSeconds: 0, observedSeconds: 0, available: true })
-      return false
-    })
-
-    const valuesByDate = new Map<string, DailyWorkActivity>()
-    for (let offset = 0; offset < queryableDates.length; offset += 31) {
-      const batch = queryableDates.slice(offset, offset + 31)
-      for (const value of await this.queryDailyActiveDurations(windowBucket.id, afkBucket.id, batch)) {
-        valuesByDate.set(value.date, value)
-      }
+    const sorted = [...dates].sort()
+    const queryStart = Date.parse(dayBounds(this.shiftDate(sorted[0]!, -2)).start)
+    const queryEnd = Math.min(Date.parse(dayBounds(this.shiftDate(sorted.at(-1)!, 2)).end), this.now() + 60_000)
+    const intervals = await this.getActiveIntervalsBatched(windowBucket.id, afkBucket.id, queryStart, queryEnd)
+    const model = buildWorkdayModel(intervals, workdayOverrides)
+    const values = new Map<string, DailyWorkActivity>(dates.map((date) => [date, { date, activeSeconds: 0, observedSeconds: 0, lastActiveAt: null, available: true }]))
+    for (const allocation of model.allocations) {
+      const current = values.get(allocation.workdayKey)
+      if (!current) continue
+      const seconds = Math.max(0, (allocation.end - allocation.start) / 1000)
+      current.activeSeconds += seconds
+      current.observedSeconds += seconds
+      const previousEnd = Date.parse(current.lastActiveAt ?? '')
+      current.lastActiveAt = new Date(Number.isFinite(previousEnd) ? Math.max(previousEnd, allocation.end) : allocation.end).toISOString()
     }
-    return dates.map((date) => knownZeros.get(date) ?? valuesByDate.get(date) ?? {
-      date,
-      activeSeconds: 0,
-      observedSeconds: 0,
-      available: false
-    })
+    return dates.map((date) => values.get(date)!)
   }
 
-  private async queryDailyActiveDurations(
+  async getCurrentWorkday(workdayOverrides: Record<string, string> = {}, persistedFallback: string | null = null): Promise<string> {
+    const overrideKey = JSON.stringify(workdayOverrides)
+    if (this.currentWorkdayCache && this.currentWorkdayCache.expiresAt > this.now() && this.currentWorkdayCache.overrideKey === overrideKey) {
+      return this.currentWorkdayCache.value
+    }
+    try {
+      await waitForServer(1500)
+      const buckets = await this.getBuckets()
+      const windowBucket = this.newestBucket(buckets, 'currentwindow')
+      const afkBucket = this.newestBucket(buckets, 'afkstatus')
+      if (!windowBucket || !afkBucket) throw new Error('ActivityWatch 窗口或 AFK 数据源不可用')
+      const intervals = await this.getActiveIntervalsBatched(
+        windowBucket.id,
+        afkBucket.id,
+        this.now() - 14 * 24 * 60 * 60 * 1000,
+        this.now() + 60_000
+      )
+      const key = modelCurrentWorkdayKey(buildWorkdayModel(intervals, workdayOverrides), this.now()) ?? localDateKey(new Date(this.now()))
+      this.lastResolvedWorkdayKey = key
+      this.currentWorkdayCache = { expiresAt: this.now() + 60_000, overrideKey, value: key }
+      return key
+    } catch {
+      return this.lastResolvedWorkdayKey ?? persistedFallback ?? localDateKey(new Date(this.now()))
+    }
+  }
+
+  invalidateWorkdayCache(): void {
+    this.currentWorkdayCache = null
+  }
+
+  private async queryActiveIntervals(
     windowBucketId: string,
     afkBucketId: string,
-    dates: string[]
-  ): Promise<DailyWorkActivity[]> {
-    if (dates.length === 0) return []
+    start: number,
+    end: number
+  ): Promise<ActiveInterval[]> {
+    if (end <= start) return []
     const query = [
       `events = flood(query_bucket(${JSON.stringify(windowBucketId)}));`,
-      'observed_seconds = sum_durations(events);',
       `not_afk = flood(query_bucket(${JSON.stringify(afkBucketId)}));`,
       'not_afk = filter_keyvals(not_afk, "status", ["not-afk"]);',
       'active_events = filter_period_intersect(events, not_afk);',
-      'RETURN = {"activeSeconds": sum_durations(active_events), "observedSeconds": observed_seconds};'
+      'RETURN = period_union(active_events, []);'
     ]
-    const timeperiods = dates.map((date) => {
-      const { start, end } = dayBounds(date)
-      return `${start}/${end}`
-    })
     const response = await fetch(`${API}/query/`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query, timeperiods }),
+      body: JSON.stringify({ query, timeperiods: [`${new Date(start).toISOString()}/${new Date(end).toISOString()}`] }),
       signal: AbortSignal.timeout(30_000)
     })
     if (!response.ok) throw new Error(`读取 ActivityWatch 区间统计失败：HTTP ${response.status}`)
-    const values = await response.json() as Array<{ activeSeconds?: unknown; observedSeconds?: unknown }>
-    if (!Array.isArray(values) || values.length !== dates.length) throw new Error('ActivityWatch 区间统计返回数量异常')
-    return dates.map((date, index) => {
-      const activeSeconds = Number(values[index]?.activeSeconds)
-      const observedSeconds = Number(values[index]?.observedSeconds)
-      if (!Number.isFinite(activeSeconds) || !Number.isFinite(observedSeconds)) {
-        throw new Error(`ActivityWatch 区间统计格式异常：${date}`)
-      }
-      return {
-        date,
-        activeSeconds: Math.max(0, activeSeconds),
-        observedSeconds: Math.max(0, observedSeconds),
-        available: true
-      }
+    const values = await response.json() as ActivityEvent[][]
+    if (!Array.isArray(values) || !Array.isArray(values[0])) throw new Error('ActivityWatch 活动区间返回格式异常')
+    return values[0].flatMap((event) => {
+      const eventStart = Date.parse(event.timestamp)
+      const eventEnd = eventStart + Number(event.duration) * 1000
+      return Number.isFinite(eventStart) && Number.isFinite(eventEnd) && eventEnd > eventStart
+        ? [{ start: eventStart, end: eventEnd }]
+        : []
     })
+  }
+
+  private async getActiveIntervalsBatched(
+    windowBucketId: string,
+    afkBucketId: string,
+    start: number,
+    end: number
+  ): Promise<ActiveInterval[]> {
+    const intervals: ActiveInterval[] = []
+    let cursor = start
+    const batchMs = 31 * 24 * 60 * 60 * 1000
+    while (cursor < end) {
+      const batchEnd = Math.min(end, cursor + batchMs)
+      intervals.push(...await this.queryActiveIntervals(windowBucketId, afkBucketId, cursor, batchEnd))
+      cursor = batchEnd
+    }
+    return intervals
+  }
+
+  private async resolveWorkday(date: string, workdayOverrides: Record<string, string>, buckets?: Bucket[]): Promise<ResolvedWorkday> {
+    const availableBuckets = buckets ?? await this.getBuckets()
+    const windowBucket = this.newestBucket(availableBuckets, 'currentwindow')
+    const afkBucket = this.newestBucket(availableBuckets, 'afkstatus')
+    if (!windowBucket || !afkBucket) throw new Error('ActivityWatch 窗口或 AFK 数据源不可用')
+    const start = Date.parse(dayBounds(this.shiftDate(date, -3)).start)
+    const end = Math.min(Date.parse(dayBounds(this.shiftDate(date, 3)).end), this.now() + 60_000)
+    const model = buildWorkdayModel(
+      await this.getActiveIntervalsBatched(windowBucket.id, afkBucket.id, start, end),
+      workdayOverrides
+    )
+    const boundary = model.boundaries.find((item) => item.workdayKey === date)
+    return {
+      model,
+      range: workdayRange(model, date),
+      info: boundary ? { workdayKey: date, startsAt: new Date(boundary.at).toISOString(), source: boundary.source } : undefined
+    }
+  }
+
+  private shiftDate(date: string, days: number): string {
+    const value = new Date(`${date}T12:00:00`)
+    value.setDate(value.getDate() + days)
+    return localDateKey(value)
   }
 
   async getDetails(
@@ -271,16 +349,18 @@ export class ActivityWatchManager {
     rules: ActivityRule[] = [],
     overrides: ActivityOverride[] = [],
     manualProjects: Record<string, string> = {},
-    privacyRules: PrivacyRule[] = []
+    privacyRules: PrivacyRule[] = [],
+    workdayOverrides: Record<string, string> = {}
   ): Promise<ActivityDetails> {
     try {
       await waitForServer(1500)
       const buckets = await this.getBuckets()
       const windowBucket = this.newestBucket(buckets, 'currentwindow')
       const afkBucket = this.newestBucket(buckets, 'afkstatus')
+      const resolved = await this.resolveWorkday(date, workdayOverrides, buckets)
       const [windowEvents, afkEvents] = await Promise.all([
-        windowBucket ? this.getEvents(windowBucket.id, date) : Promise.resolve([]),
-        afkBucket ? this.getEvents(afkBucket.id, date) : Promise.resolve([])
+        windowBucket && resolved.range ? this.getEventsRange(windowBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([]),
+        afkBucket && resolved.range ? this.getEventsRange(afkBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([])
       ])
       const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects)
       const privateEntry = (entry: ActivityDetails['entries'][number]) => privacyRules.some((rule) => rule.enabled
@@ -316,6 +396,7 @@ export class ActivityWatchManager {
         entries,
         projectOptions: [...projectOptions.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN')),
         rules,
+        workday: resolved.info,
         partial,
         warning: partial ? 'AFK 数据暂不可用，以下活动可能包含离开电脑的时间。' : null,
         error: null,
@@ -437,7 +518,8 @@ export class ActivityWatchManager {
       app: windowEvent.data.app ?? '',
       title: windowEvent.data.title ?? '',
       isAfk: afkEvent.data.status === 'afk',
-      fresh: true
+      fresh: true,
+      startedAt: afkEvent.data.status === 'afk' ? afkEvent.timestamp : null
     }
   }
 
@@ -561,9 +643,8 @@ export class ActivityWatchManager {
     return type === 'afkstatus' ? 300_000 : 120_000
   }
 
-  private async getEvents(bucketId: string, date: string): Promise<ActivityEvent[]> {
-    const { start, end } = dayBounds(date)
-    const params = new URLSearchParams({ start, end, limit: '-1' })
+  private async getEventsRange(bucketId: string, start: number, end: number): Promise<ActivityEvent[]> {
+    const params = new URLSearchParams({ start: new Date(start).toISOString(), end: new Date(end).toISOString(), limit: '-1' })
     const response = await fetch(`${API}/buckets/${encodeURIComponent(bucketId)}/events?${params}`, {
       signal: AbortSignal.timeout(10_000)
     })

@@ -3,6 +3,17 @@ import { aggregateActivity } from '../src/main/aggregate'
 import type { ActivityEvent, CodexContextSample, CodexContextStatus } from '../src/shared/contracts'
 
 describe('ActivityWatch aggregation', () => {
+  it('keeps the live AFK state truthful when the persisted workday range excludes the rest period', () => {
+    const now = Date.parse('2026-07-19T03:00:00.000Z')
+    const summary = aggregateActivity(
+      [], [], [], true, { window: 'window', afk: 'afk' }, [], {}, undefined, now,
+      [], [], {}, [], { isAfk: true, fresh: true, startedAt: '2026-07-19T02:30:00.000Z' }
+    )
+    expect(summary.focus.status).toBe('afk')
+    expect(summary.focus.label).toBe('已离开电脑')
+    expect(summary.focus.continuousSeconds).toBe(1800)
+  })
+
   it('subtracts AFK overlap from window time and does not label AFK as inefficient', () => {
     const windows: ActivityEvent[] = [
       { id: 1, timestamp: '2026-07-14T01:00:00.000Z', duration: 600, data: { app: 'Code.exe', title: '重要项目' } },

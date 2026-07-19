@@ -187,6 +187,7 @@ export interface ActivitySummary {
   focus: FocusSnapshot
   afkPeriods: AfkPeriod[]
   recentEvents: ActivityEvent[]
+  workday?: WorkdayBoundaryInfo
   error: string | null
   updatedAt: string
 }
@@ -244,6 +245,7 @@ export interface DailyWorkActivity {
   date: string
   activeSeconds: number
   observedSeconds: number
+  lastActiveAt?: string | null
   available: boolean
 }
 
@@ -267,6 +269,14 @@ export interface WorkPeriodMetrics {
   priorityPlanned: number
   reviewedDays: number
   linkedOutcomeDays: number
+  latestLeaveAt: string | null
+  latestLeaveWorkday: string | null
+}
+
+export interface WorkdayBoundaryInfo {
+  workdayKey: string
+  startsAt: string
+  source: 'initial' | 'auto' | 'manual'
 }
 
 export interface WorkActivityDashboard {
@@ -329,6 +339,7 @@ export interface ActivityDetails {
   entries: ActivityDetailEntry[]
   projectOptions: ProjectOption[]
   rules: ActivityRule[]
+  workday?: WorkdayBoundaryInfo
   partial: boolean
   warning: string | null
   error: string | null
@@ -419,6 +430,8 @@ export interface TimeEfficiencyApi {
   getDiagnostics(): Promise<Diagnostics>
   setProjectAlias(input: ProjectAliasInput): Promise<ActivitySummary>
   getActivityDetails(date: string): Promise<ActivityDetails>
+  setWorkdayBoundary(input: { date: string; startsAt: string }): Promise<ActivityDetails>
+  removeWorkdayBoundary(input: { date: string }): Promise<ActivityDetails>
   saveActivityCorrection(input: SaveActivityCorrectionInput): Promise<ActivityDetails>
   removeActivityCorrection(input: RemoveActivityCorrectionInput): Promise<ActivityDetails>
   setActivityRuleEnabled(input: ActivityRuleMutationInput & { enabled: boolean }): Promise<ActivityDetails>
@@ -453,6 +466,8 @@ export const IPC = {
   getDiagnostics: 'diagnostics:get',
   setProjectAlias: 'projects:set-alias',
   getActivityDetails: 'activity:details',
+  setWorkdayBoundary: 'activity:set-workday-boundary',
+  removeWorkdayBoundary: 'activity:remove-workday-boundary',
   saveActivityCorrection: 'activity:save-correction',
   removeActivityCorrection: 'activity:remove-correction',
   setActivityRuleEnabled: 'activity:rule-enabled',

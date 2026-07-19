@@ -44,6 +44,34 @@ function runtimeRoot(): string {
   return app.isPackaged ? join(process.resourcesPath, 'activitywatch') : join(app.getAppPath(), 'runtime', 'activitywatch')
 }
 
+function shiftDateKey(date: string, days: number): string {
+  const value = new Date(`${date}T12:00:00`)
+  value.setDate(value.getDate() + days)
+  return localDateKey(value)
+}
+
+function supportingDateKeys(workdayKey: string): string[] {
+  return [workdayKey, shiftDateKey(workdayKey, 1), shiftDateKey(workdayKey, 2)]
+}
+
+async function currentWorkdayKey(): Promise<string> {
+  const key = await activityWatch.getCurrentWorkday(store.getWorkdayBoundaryOverrides(), store.getLastResolvedWorkdayKey())
+  store.setLastResolvedWorkdayKey(key)
+  return key
+}
+
+function combinedContextSamples(workdayKey: string) {
+  return supportingDateKeys(workdayKey).flatMap((date) => store.getCodexContextSamples(date))
+}
+
+function combinedActivityOverrides(workdayKey: string) {
+  return supportingDateKeys(workdayKey).flatMap((date) => store.getActivityOverrides(date))
+}
+
+function combinedAfkNotes(workdayKey: string) {
+  return supportingDateKeys(workdayKey).flatMap((date) => store.getRecordSnapshot(date).afkNotes)
+}
+
 function createWindow(): void {
   window = new BrowserWindow({
     width: 1280,
@@ -233,32 +261,32 @@ async function diagnostics() {
 }
 
 async function activitySummary(date: string) {
-  const record = store.getRecord(date)
   return activityWatch.getSummary(
     date,
-    record.afkNotes,
-    store.getCodexContextSamples(date),
+    combinedAfkNotes(date),
+    combinedContextSamples(date),
     store.getProjectAliases(),
     codexContextTracker?.getStatus(),
     store.getClassificationRules(),
-    store.getActivityOverrides(date),
+    combinedActivityOverrides(date),
     store.getManualProjects(),
-    store.getPrivacyRules()
+    store.getPrivacyRules(),
+    store.getWorkdayBoundaryOverrides()
   )
 }
 
 async function historicalActivitySummary(date: string) {
-  const record = store.getRecordSnapshot(date)
   return activityWatch.getSummary(
     date,
-    record.afkNotes,
-    store.getCodexContextSamples(date),
+    combinedAfkNotes(date),
+    combinedContextSamples(date),
     store.getProjectAliases(),
-    date === localDateKey() ? codexContextTracker?.getStatus() : undefined,
+    undefined,
     store.getClassificationRules(),
-    store.getActivityOverrides(date),
+    combinedActivityOverrides(date),
     store.getManualProjects(),
-    store.getPrivacyRules()
+    store.getPrivacyRules(),
+    store.getWorkdayBoundaryOverrides()
   )
 }
 
@@ -290,8 +318,9 @@ function invalidateWorkActivityCache(): void {
 async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivityDashboard> {
   const cached = workActivityCache.get(mode)
   if (cached && cached.expiresAt > Date.now()) return cached.value
-  const today = localDateKey()
-  const chartDates = recentDateKeys(366)
+  const today = await currentWorkdayKey()
+  const anchor = new Date(`${today}T12:00:00`)
+  const chartDates = recentDateKeys(366, anchor)
   let available = true
   let error: string | null = null
   let facts
@@ -299,7 +328,7 @@ async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivi
     facts = await workActivityFactsCache.resolve(
       chartDates,
       today,
-      (dates) => activityWatch.getDailyActiveDurations(dates)
+      (dates) => activityWatch.getDailyActiveDurations(dates, store.getWorkdayBoundaryOverrides())
     )
   } catch (cause) {
     available = false
@@ -307,7 +336,7 @@ async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivi
     facts = chartDates.map((date) => ({ date, activeSeconds: 0, observedSeconds: 0, available: false }))
   }
 
-  const metricDates = periodDateKeys(mode)
+  const metricDates = periodDateKeys(mode, anchor)
   const inputs = available ? await Promise.all(metricDates.map(async (date) => ({
     record: store.getRecordSnapshot(date),
     activity: await historicalActivitySummary(date)
@@ -329,12 +358,13 @@ async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivi
 async function activityDetails(date: string) {
   const details = await activityWatch.getDetails(
     date,
-    store.getCodexContextSamples(date),
+    combinedContextSamples(date),
     store.getProjectAliases(),
     store.getClassificationRules(),
-    store.getActivityOverrides(date),
+    combinedActivityOverrides(date),
     store.getManualProjects(),
-    store.getPrivacyRules()
+    store.getPrivacyRules(),
+    store.getWorkdayBoundaryOverrides()
   )
   const projects = new Map(store.getKnownProjectOptions().map((project) => [project.key, project]))
   for (const project of details.projectOptions) projects.set(project.key, project)
@@ -350,7 +380,7 @@ function meaningfulRulePattern(value: string): boolean {
 }
 
 async function bootstrap() {
-  const date = localDateKey()
+  const date = await currentWorkdayKey()
   const record = store.getRecord(date)
   const settings = store.getSettings()
   return {
@@ -367,10 +397,10 @@ async function bootstrap() {
 function registerIpc(): void {
   ipcMain.handle(IPC.bootstrap, bootstrap)
   ipcMain.handle(IPC.refreshActivity, async (_event, date?: string) => {
-    const key = date || localDateKey()
+    const key = date || await currentWorkdayKey()
     return activitySummary(key)
   })
-  ipcMain.handle(IPC.savePlan, (_event, input: PlanInput) => {
+  ipcMain.handle(IPC.savePlan, async (_event, input: PlanInput) => {
     const knownProjectKeys = new Set(store.getKnownProjectOptions().map((project) => project.key))
     const outcomes = input.outcomes.map((item) => ({
       ...item,
@@ -381,7 +411,7 @@ function registerIpc(): void {
     })).filter((item) => item.title).slice(0, 3)
     if (!outcomes.length) throw new Error('至少填写一个重要成果')
     if (!outcomes.some((item) => item.id === input.priorityOutcomeId)) throw new Error('请选择一个绝对优先项')
-    const saved = store.updateRecord(localDateKey(), (record) => ({
+    const saved = store.updateRecord(await currentWorkdayKey(), (record) => ({
       ...record,
       outcomes,
       priorityOutcomeId: input.priorityOutcomeId,
@@ -390,17 +420,17 @@ function registerIpc(): void {
     invalidateWorkActivityCache()
     return saved
   })
-  ipcMain.handle(IPC.saveReview, (_event, input: ReviewInput) => {
+  ipcMain.handle(IPC.saveReview, async (_event, input: ReviewInput) => {
     if (input.subjectiveScore < 1 || input.subjectiveScore > 5) throw new Error('主观效率评分必须在 1–5 之间')
-    const saved = store.updateRecord(localDateKey(), (record) => ({
+    const saved = store.updateRecord(await currentWorkdayKey(), (record) => ({
       ...record,
       review: { ...input, summary: input.summary.trim(), tomorrowIntent: input.tomorrowIntent.trim(), completedAt: new Date().toISOString() }
     }))
     invalidateWorkActivityCache()
     return saved
   })
-  ipcMain.handle(IPC.saveAfkNote, (_event, input: AfkNote) =>
-    store.updateRecord(localDateKey(), (record) => ({
+  ipcMain.handle(IPC.saveAfkNote, async (_event, input: AfkNote) =>
+    store.updateRecord(await currentWorkdayKey(), (record) => ({
       ...record,
       afkNotes: [...record.afkNotes.filter((note) => note.id !== input.id), { ...input, note: input.note.trim() }]
     }))
@@ -417,11 +447,11 @@ function registerIpc(): void {
   ipcMain.handle(IPC.setTracking, async (_event, enabled: boolean) => {
     store.updateSettings({ trackingEnabled: enabled })
     await activityWatch.setTracking(enabled)
-    const date = localDateKey()
+    const date = await currentWorkdayKey()
     return activitySummary(date)
   })
   ipcMain.handle(IPC.runAiReview, async () => {
-    const date = localDateKey()
+    const date = await currentWorkdayKey()
     const record = store.getRecord(date)
     const activity = await activitySummary(date)
     if (!activity.connected) throw new Error(`ActivityWatch 未连接：${activity.error}`)
@@ -435,11 +465,27 @@ function registerIpc(): void {
       throw new Error('项目名称参数无效')
     }
     store.setProjectAlias(input.projectKey, input.label)
-    return activitySummary(localDateKey())
+    return activitySummary(await currentWorkdayKey())
   })
   ipcMain.handle(IPC.getActivityDetails, (_event, date: unknown) => {
     if (!validDate(date)) throw new Error('活动日期无效')
     return activityDetails(date)
+  })
+  ipcMain.handle(IPC.setWorkdayBoundary, async (_event, input: { date?: unknown; startsAt?: unknown }) => {
+    if (!validDate(input?.date) || typeof input?.startsAt !== 'string') throw new Error('工作日边界参数无效')
+    const timestamp = Date.parse(input.startsAt)
+    if (!Number.isFinite(timestamp) || localDateKey(new Date(timestamp)) !== input.date) throw new Error('工作日边界必须位于所选日期内')
+    store.setWorkdayBoundary(input.date, new Date(timestamp).toISOString())
+    activityWatch.invalidateWorkdayCache()
+    invalidateWorkActivityCache()
+    return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.removeWorkdayBoundary, async (_event, input: { date?: unknown }) => {
+    if (!validDate(input?.date)) throw new Error('工作日边界日期无效')
+    store.removeWorkdayBoundary(input.date)
+    activityWatch.invalidateWorkdayCache()
+    invalidateWorkActivityCache()
+    return activityDetails(input.date)
   })
   ipcMain.handle(IPC.saveActivityCorrection, async (_event, input: SaveActivityCorrectionInput) => {
     if (!validDate(input?.date) || typeof input?.entryId !== 'string' || typeof input?.start !== 'string'
@@ -591,8 +637,8 @@ function registerIpc(): void {
   })
 }
 
-function checkReminders(): void {
-  const date = localDateKey()
+async function checkReminders(): Promise<void> {
+  const date = await currentWorkdayKey()
   const state = reminderState(store.getRecord(date), store.getSettings())
   const notify = (phase: 'morning' | 'evening', title: string, body: string) => {
     const key = `${date}:${phase}`
@@ -617,7 +663,7 @@ else {
     const settings = store.getSettings()
     applyLaunchAtLogin(settings.launchAtLogin)
     registerIpc()
-    codexContextTracker.start(() => localDateKey())
+    codexContextTracker.start(() => currentWorkdayKey())
     createWindow()
     createWidgetWindow()
     if (!e2eMode) createTray()
@@ -625,8 +671,8 @@ else {
       .catch((error) => console.error('ActivityWatch startup failed:', error))
       .finally(() => activityWatch.startMonitoring())
     if (!e2eMode) {
-      checkReminders()
-      setInterval(checkReminders, 60_000)
+      void checkReminders()
+      setInterval(() => void checkReminders(), 60_000)
     }
   })
 }

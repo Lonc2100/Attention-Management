@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 describe('persisted work activity facts cache', () => {
-  it('reuses historical dates across refreshes and processes but always refreshes today', async () => {
+  it('reuses historical dates but refreshes today and yesterday while a cross-midnight boundary can still settle', async () => {
     const file = cachePath()
     const firstLoader = vi.fn(async (dates: string[]) => dates.map((date, index) => ({
       date, activeSeconds: 100 + index, observedSeconds: 120 + index, available: true
@@ -33,7 +33,7 @@ describe('persisted work activity facts cache', () => {
 
     expect(firstLoader.mock.calls.map(([dates]) => dates)).toEqual([
       ['2026-07-15', '2026-07-16'],
-      ['2026-07-16']
+      ['2026-07-15', '2026-07-16']
     ])
 
     const secondLoader = vi.fn(async (dates: string[]) => dates.map((date) => ({
@@ -46,9 +46,9 @@ describe('persisted work activity facts cache', () => {
       secondLoader
     )
 
-    expect(secondLoader).toHaveBeenCalledWith(['2026-07-14', '2026-07-16'])
-    expect(result.map((item) => item.activeSeconds)).toEqual([200, 100, 200])
-    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1)
+    expect(secondLoader).toHaveBeenCalledWith(['2026-07-14', '2026-07-15', '2026-07-16'])
+    expect(result.map((item) => item.activeSeconds)).toEqual([200, 200, 200])
+    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(2)
   })
 
   it('ignores a corrupt disposable cache and rebuilds it from the source', async () => {
@@ -61,6 +61,6 @@ describe('persisted work activity facts cache', () => {
     const result = await new WorkActivityFactsCache(file).resolve(['2026-07-16'], '2026-07-16', loader)
 
     expect(result[0]?.activeSeconds).toBe(60)
-    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1)
+    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(2)
   })
 })

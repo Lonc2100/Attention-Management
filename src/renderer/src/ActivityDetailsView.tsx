@@ -44,6 +44,8 @@ export function ActivityDetailsView({ initialDate, onActivity }: { initialDate: 
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('details')
+  const [editingBoundary, setEditingBoundary] = useState(false)
+  const [boundaryTime, setBoundaryTime] = useState('09:00')
 
   const load = async (target = date) => {
     setLoading(true)
@@ -51,6 +53,7 @@ export function ActivityDetailsView({ initialDate, onActivity }: { initialDate: 
     try {
       const next = await window.timeEfficiency.getActivityDetails(target)
       setDetails(next)
+      if (next.workday) setBoundaryTime(new Date(next.workday.startsAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))
       setSelectedId((current) => next.entries.some((entry) => entry.id === current) ? current : null)
       if (!next.connected && next.error) setError(next.error)
     } catch (cause) {
@@ -91,6 +94,11 @@ export function ActivityDetailsView({ initialDate, onActivity }: { initialDate: 
     }
   }
 
+  const saveBoundary = () => {
+    const startsAt = new Date(`${date}T${boundaryTime}:00`).toISOString()
+    return mutate(() => window.timeEfficiency.setWorkdayBoundary({ date, startsAt }), '工作日边界已更新').then(() => setEditingBoundary(false))
+  }
+
   return <div className="activity-workspace">
     <section className="activity-main">
       <div className="activity-toolbar">
@@ -101,6 +109,7 @@ export function ActivityDetailsView({ initialDate, onActivity }: { initialDate: 
       {toast && <div className="activity-toast">✓ {toast}</div>}
       {error && <div className="activity-state activity-state--error"><strong>读取或保存未完成</strong><span>{error}</span><button className="secondary" onClick={() => void load()}>重新读取</button></div>}
       {details?.warning && <div className="activity-warning">! {details.warning}</div>}
+      {details?.workday && <div className="workday-boundary-bar"><div><span>工作日从</span><strong>{clock(details.workday.startsAt)}</strong><small>{details.workday.source === 'manual' ? '人工确认' : details.workday.source === 'auto' ? '主要休息后自动开始' : '首个可用活动'}</small></div>{editingBoundary ? <div className="workday-boundary-editor"><input aria-label="工作日开始时间" type="time" value={boundaryTime} onChange={(event) => setBoundaryTime(event.target.value)} /><button className="primary" onClick={() => void saveBoundary()}>保存</button><button className="secondary" onClick={() => setEditingBoundary(false)}>取消</button></div> : <div><button className="secondary" onClick={() => setEditingBoundary(true)}>调整边界</button>{details.workday.source === 'manual' && <button className="text-button" onClick={() => void mutate(() => window.timeEfficiency.removeWorkdayBoundary({ date }), '已恢复自动判断')}>恢复自动</button>}</div>}</div>}
 
       {mode === 'details' && <>
         <section className="activity-timeline-card">
@@ -114,7 +123,7 @@ export function ActivityDetailsView({ initialDate, onActivity }: { initialDate: 
         <section className="activity-list-card">
           <div className="activity-list-tools"><div className="activity-filters">{(['all', 'manual', 'rule', 'codex-context', 'unclassified', 'application', 'afk'] as Filter[]).map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value === 'all' ? '全部' : SOURCE_LABEL[value]}</button>)}</div><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索应用、标题或项目" /></div>
           <div className="activity-list-head"><span>时间</span><span>活动证据</span><span>当前归类</span><span>来源</span></div>
-          {loading ? <div className="activity-skeleton rows"><i /><i /><i /><i /></div> : filtered.length ? <div className="activity-list">{filtered.map((entry) => <button key={entry.id} className={selectedId === entry.id ? 'selected' : ''} onClick={() => setSelectedId(entry.id)}><time>{clock(entry.start)}–{clock(entry.end)}</time><span className="activity-evidence"><i style={{ background: colorFor(entry) }}>{entry.attribution === 'afk' ? 'Z' : entry.app.slice(0, 1).toUpperCase()}</i><span><strong title={entry.title}>{entry.title}</strong><small>{entry.attribution === 'afk' ? duration(entry.seconds) : `${entry.app} · ${duration(entry.seconds)}`}</small></span></span><strong className="activity-project">{entry.projectLabel}</strong><em className={`source-badge source-${entry.attribution}`}>{SOURCE_LABEL[entry.attribution]}</em></button>)}</div> : <div className="activity-empty">没有符合当前筛选的活动。<button className="text-button" onClick={() => { setFilter('all'); setSearch('') }}>清除筛选</button></div>}
+          {loading ? <div className="activity-skeleton rows"><i /><i /><i /><i /></div> : filtered.length ? <div className="activity-list">{filtered.map((entry) => <button key={entry.id} data-end={entry.end} className={selectedId === entry.id ? 'selected' : ''} onClick={() => setSelectedId(entry.id)}><time>{clock(entry.start)}–{clock(entry.end)}</time><span className="activity-evidence"><i style={{ background: colorFor(entry) }}>{entry.attribution === 'afk' ? 'Z' : entry.app.slice(0, 1).toUpperCase()}</i><span><strong title={entry.title}>{entry.title}</strong><small>{entry.attribution === 'afk' ? duration(entry.seconds) : `${entry.app} · ${duration(entry.seconds)}`}</small></span></span><strong className="activity-project">{entry.projectLabel}</strong><em className={`source-badge source-${entry.attribution}`}>{SOURCE_LABEL[entry.attribution]}</em></button>)}</div> : <div className="activity-empty">没有符合当前筛选的活动。<button className="text-button" onClick={() => { setFilter('all'); setSearch('') }}>清除筛选</button></div>}
         </section>
       </>}
 

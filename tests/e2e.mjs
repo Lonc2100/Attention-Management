@@ -66,6 +66,8 @@ try {
   }
   record('ActivityWatch UI status', 'connected and tracking')
   await app.page.getByTestId('attention-overview').waitFor()
+  const idleConfidenceNote = await app.page.getByTestId('idle-confidence-note').innerText()
+  assert.match(idleConfidenceNote, /低交互推定.*15 分钟/, 'homepage did not explain the idle-confidence policy')
   await app.page.getByTestId('work-activity-module').waitFor()
   const workCells = app.page.locator('.work-activity__cell')
   await workCells.nth(359).waitFor()
@@ -205,8 +207,22 @@ try {
       await learnedRule.getByRole('button', { name: '删除' }).click()
       await app.page.getByText('规则已删除', { exact: false }).waitFor()
       await app.page.getByRole('button', { name: '活动明细', exact: true }).last().click()
+      const correctedRow = app.page.locator('.activity-list > button').filter({ has: app.page.locator('.source-manual') }).last()
+      await correctedRow.waitFor()
+      await correctedRow.click()
       await app.page.getByRole('button', { name: '撤销这次纠错' }).click()
       await app.page.getByText('已撤销人工纠错', { exact: false }).waitFor()
+    }
+    const afkRow = app.page.locator('.activity-list > button').filter({ has: app.page.locator('.source-afk') }).last()
+    if (await afkRow.count()) {
+      await afkRow.click()
+      await app.page.getByTestId('idle-override-add').click()
+      await app.page.getByText('这段时间已人工计入工作', { exact: false }).waitFor()
+      const manuallyCounted = app.page.locator('.activity-list > button').filter({ hasText: '人工计入' }).last()
+      await manuallyCounted.waitFor()
+      await manuallyCounted.click()
+      await app.page.getByTestId('idle-override-remove').click()
+      await app.page.getByText('已恢复为离开电脑', { exact: false }).waitFor()
     }
   }
   const detailsOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
@@ -218,7 +234,7 @@ try {
   }
   await app.page.getByRole('button', { name: /归类规则/ }).click()
   await app.page.locator('.rule-manager').waitFor()
-  record('Activity details', 'workday boundary override, timeline, evidence drawer, reversible correction, learned rule creation/deletion, filters, and rule manager rendered')
+  record('Activity details', 'workday boundary override, timeline, evidence drawer, project and idle corrections, learned rule creation/deletion, filters, and rule manager rendered')
 
   await app.page.getByRole('button', { name: '今日概览' }).click()
 

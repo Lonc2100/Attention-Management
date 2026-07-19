@@ -40,6 +40,8 @@ function activity(): ActivitySummary {
     afkBucketId: 'afk',
     activeSeconds: 7200,
     afkSeconds: 0,
+    softIdleSeconds: 0,
+    idleThresholdMinutes: 15,
     apps: [],
     projects: [],
     codexActiveSeconds: 0,

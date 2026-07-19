@@ -154,7 +154,7 @@ export function TodayDashboard({ data, busy, onView, onOpenActivityDate, run, on
         <span className="dashboard-command-strip__copy"><small>{activity.focus.status === 'confirmed' ? '当前项目' : '当前上下文'}</small><strong title={activity.focus.label}>{activity.focus.label}</strong></span>
         <span className="dashboard-command-strip__timer"><small>连续专注</small><strong>{compactDuration(activity.focus.continuousSeconds)}</strong></span>
       </div>
-      <div className="dashboard-command-strip__metric"><small>今日投入</small><strong>{duration(activity.activeSeconds)}</strong></div>
+      <div className="dashboard-command-strip__metric" title={`含 ${duration(activity.softIdleSeconds)} 低交互推定时间`}><small>今日投入</small><strong>{duration(activity.activeSeconds)}</strong></div>
       <button className="dashboard-command-strip__priority" data-testid="priority-outcome-evidence" onClick={() => onView(priorityAction)}>
         <span><small>优先成果</small><strong title={priorityEvidence?.title}>{priorityEvidence?.title ?? '待确认'}</strong></span>
         <em>{reminderLabel ?? (priorityEvidence?.projectLabels.length ? `${duration(priorityEvidence.attentionSeconds)} 注意力` : '暂无关联证据')}</em>
@@ -169,7 +169,7 @@ export function TodayDashboard({ data, busy, onView, onOpenActivityDate, run, on
         <div className="attention-layout">
           <div className="donut-wrap">
             <AttentionDonut activity={activity} colors={sliceColors} activeKey={activeKey} onPointer={showFromPointer} onFocus={showFromFocus} onLeave={clearHover} />
-            <p>统一分母：排除 AFK 后的全部前台注意力</p>
+            <p data-testid="idle-confidence-note">含 {duration(activity.softIdleSeconds)} 低交互推定；超过 {activity.idleThresholdMinutes} 分钟才算主要离开</p>
           </div>
           <div className="attention-legend">
             {activity.attentionSlices.length ? activity.attentionSlices.slice(0, 8).map((slice) => <button key={categoryKey(slice)} className={activeKey && activeKey !== categoryKey(slice) ? 'is-dimmed' : activeKey === categoryKey(slice) ? 'is-active' : ''} data-category-key={categoryKey(slice)} data-linked-active={activeKey === categoryKey(slice) ? 'true' : 'false'} onMouseEnter={(event) => showFromPointer(slice, event)} onMouseLeave={clearHover} onFocus={(event) => showFromFocus(slice, event)} onBlur={clearHover}>
@@ -235,7 +235,7 @@ function AttentionDonut({ activity, colors, activeKey, onPointer, onFocus, onLea
         </g>
       })}
     </svg>
-    <div className="attention-donut__center"><strong>{duration(activity.activeSeconds)}</strong><span>有效电脑时间</span></div>
+    <div className="attention-donut__center"><strong>{duration(activity.activeSeconds)}</strong><span>推定工作投入</span></div>
   </div>
 }
 

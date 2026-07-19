@@ -47,7 +47,7 @@ describe('local persistence', () => {
     expect(store.getSettings().morningReminder).toBe('08:45')
     expect(store.getCodexContextSamples('2026-07-14')).toEqual([])
     const migratedImmediately = JSON.parse(readFileSync(file, 'utf8')) as { version: number; codexContextSamples?: unknown; projectAliases?: unknown }
-    expect(migratedImmediately.version).toBe(7)
+    expect(migratedImmediately.version).toBe(8)
     expect(migratedImmediately.codexContextSamples).toEqual({})
     expect(migratedImmediately.projectAliases).toEqual({})
 
@@ -74,7 +74,7 @@ describe('local persistence', () => {
     ])
 
     const persisted = JSON.parse(readFileSync(file, 'utf8')) as { version: number }
-    expect(persisted.version).toBe(7)
+    expect(persisted.version).toBe(8)
   })
 
   it('migrates v2 settings with safe floating-widget defaults and persists placement', () => {
@@ -94,13 +94,32 @@ describe('local persistence', () => {
       launchAtLogin: false,
       widgetMode: 'always-on-top',
       widgetExpanded: false,
-      widgetPosition: null
+      widgetPosition: null,
+      idleThresholdMinutes: 15
     })
     store.updateSettings({ widgetExpanded: true, widgetPosition: { x: 1200, y: 24, displayId: 'display-2' } })
     expect(new AppStore(file).getSettings()).toMatchObject({
       widgetExpanded: true,
-      widgetPosition: { x: 1200, y: 24, displayId: 'display-2' }
+      widgetPosition: { x: 1200, y: 24, displayId: 'display-2' },
+      idleThresholdMinutes: 15
     })
+  })
+
+  it('persists a validated idle threshold and reversible idle corrections', () => {
+    const directory = join(process.cwd(), 'tests', '.data')
+    const file = join(directory, 'idle-v8.json')
+    writeFileSync(file, JSON.stringify({ version: 7, settings: {}, records: {} }), 'utf8')
+    const store = new AppStore(file)
+    expect(store.getSettings().idleThresholdMinutes).toBe(15)
+    expect(store.updateSettings({ idleThresholdMinutes: 20 }).idleThresholdMinutes).toBe(20)
+    expect(store.updateSettings({ idleThresholdMinutes: 999 }).idleThresholdMinutes).toBe(15)
+    store.addIdleOverride({
+      id: 'idle-one', date: '2026-07-19', start: '2026-07-19T03:00:00.000Z',
+      end: '2026-07-19T03:20:00.000Z', createdAt: 1000
+    })
+    expect(new AppStore(file).getIdleOverrides('2026-07-19')).toEqual([expect.objectContaining({ id: 'idle-one' })])
+    store.removeIdleOverride('2026-07-19', 'idle-one')
+    expect(store.getIdleOverrides('2026-07-19')).toEqual([])
   })
 
   it('migrates v3 classification data safely and persists reversible corrections and ordered rules', () => {
@@ -157,7 +176,7 @@ describe('local persistence', () => {
     expect(reloaded.getClassificationRules().map((rule) => rule.id)).toEqual(['rule-two', 'rule-one'])
     expect(reloaded.getActivityOverrides('2026-07-15')).toHaveLength(1)
     expect(reloaded.getManualProjects()).toEqual({ 'manual:media': '自媒体创作' })
-    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(7)
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(8)
 
     reloaded.removeActivityOverride('2026-07-15', 'override-one')
     reloaded.setClassificationRuleEnabled('rule-two', false)
@@ -201,7 +220,7 @@ describe('local persistence', () => {
     })
     expect(store.getClassificationRules()).toHaveLength(1)
     expect(store.getProjectAliases()).toEqual({ 'cwd:attention': '时间效率助手' })
-    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(7)
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { version: number }).version).toBe(8)
   })
 
   it('creates a recovery checkpoint before replacing local data from a backup', () => {
@@ -213,7 +232,7 @@ describe('local persistence', () => {
     store.restoreData({ version: 6, settings: { eveningReminder: '20:30' }, records: {}, codexContextSamples: {}, projectAliases: {}, classificationRules: [], activityOverrides: {}, manualProjects: {}, privacyRules: [] }, recovery)
     expect(JSON.parse(readFileSync(recovery, 'utf8'))).toMatchObject({ records: { '2026-07-15': expect.any(Object) } })
     expect(store.getSettings().eveningReminder).toBe('20:30')
-    expect(store.exportData().version).toBe(7)
+    expect(store.exportData().version).toBe(8)
   })
 
   it('persists reversible workday boundaries and the last confirmed workday', () => {

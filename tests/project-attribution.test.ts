@@ -66,22 +66,22 @@ describe('Codex foreground attention attribution', () => {
       { id: 1, timestamp: new Date(start).toISOString(), duration: 600, data: { app: 'ChatGPT.exe', title: 'ChatGPT' } }
     ]
     const afk: ActivityEvent[] = [
-      { id: 2, timestamp: new Date(start + 360_000).toISOString(), duration: 120, data: { status: 'afk' } }
+      { id: 2, timestamp: new Date(start + 360_000).toISOString(), duration: 180, data: { status: 'afk' } }
     ]
     const first = thread({ id: 'thread-a', cwd: 'D:\\project-a', name: '项目 A' })
     const second = thread({ id: 'thread-b', cwd: 'D:\\project-b', name: '项目 B' })
     const samples = [sample(start + 120_000, first), sample(start + 300_000, second)]
 
-    const result = aggregateActivity(windows, afk, [], true, { window: 'window', afk: 'afk' }, samples, {})
+    const result = aggregateActivity(windows, afk, [], true, { window: 'window', afk: 'afk' }, samples, {}, undefined, Date.now(), [], [], {}, [], undefined, 3)
 
-    expect(result.codexActiveSeconds).toBe(480)
-    expect(result.codexClassifiedSeconds).toBe(360)
+    expect(result.codexActiveSeconds).toBe(420)
+    expect(result.codexClassifiedSeconds).toBe(300)
     expect(result.codexUnclassifiedSeconds).toBe(120)
-    expect(result.codexCoveragePercent).toBe(75)
+    expect(result.codexCoveragePercent).toBe(71)
     expect(result.projects).toEqual([
       expect.objectContaining({ key: 'cwd:d:\\project-a', label: 'project-a', seconds: 180 }),
-      expect.objectContaining({ key: 'cwd:d:\\project-b', label: 'project-b', seconds: 180 }),
-      expect.objectContaining({ key: 'unclassified', label: '待分类', seconds: 120 })
+      expect.objectContaining({ key: 'unclassified', label: '待分类', seconds: 120 }),
+      expect.objectContaining({ key: 'cwd:d:\\project-b', label: 'project-b', seconds: 120 })
     ])
   })
 

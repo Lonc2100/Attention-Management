@@ -9,12 +9,14 @@ import type {
   AppUsage,
   CodexContextSample,
   CodexContextStatus,
+  IdleOverride,
   FocusSnapshot,
   ProjectIdentitySource,
   ProjectUsage,
   PrivacyRule,
   TimelineSlice
 } from '../shared/contracts'
+import { DEFAULT_IDLE_THRESHOLD_MINUTES } from '../shared/idle-policy'
 import { classifyActivityDay, type ClassifiedSegment } from './classification'
 import { identityForSample, isCodexWindow } from './project-attribution'
 
@@ -272,13 +274,15 @@ export function aggregateActivity(
   overrides: ActivityOverride[] = [],
   manualProjects: Record<string, string> = {},
   privacyRules: PrivacyRule[] = [],
-  liveState?: { isAfk: boolean; fresh?: boolean; startedAt?: string | null }
+  liveState?: { isAfk: boolean; fresh?: boolean; startedAt?: string | null },
+  idleThresholdMinutes = DEFAULT_IDLE_THRESHOLD_MINUTES,
+  idleOverrides: IdleOverride[] = []
 ): ActivitySummary {
   const currentAlias = codexContext.current ? projectAliases[codexContext.current.projectKey]?.trim() : ''
   const displayCodexContext: CodexContextStatus = currentAlias && codexContext.current
     ? { ...codexContext, current: { ...codexContext.current, projectLabel: currentAlias, identitySource: 'alias' } }
     : codexContext
-  const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects)
+  const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects, idleThresholdMinutes, idleOverrides)
   const privacySafeSegments = applyPrivacyRules(classified.segments, privacyRules)
   const afkPeriods: AfkPeriod[] = classified.afkPeriods.map((period) => ({
     ...period,
@@ -299,6 +303,8 @@ export function aggregateActivity(
     afkBucketId: bucketIds.afk,
     activeSeconds: classified.activeSeconds,
     afkSeconds: classified.afkSeconds,
+    softIdleSeconds: classified.softIdleSeconds,
+    idleThresholdMinutes,
     apps: appUsageFromSegments(privacySafeSegments),
     projects,
     codexActiveSeconds,
@@ -316,9 +322,10 @@ export function aggregateActivity(
   }
 }
 
-export function disconnectedSummary(tracking: boolean, error: unknown): ActivitySummary {
+export function disconnectedSummary(tracking: boolean, error: unknown, idleThresholdMinutes = DEFAULT_IDLE_THRESHOLD_MINUTES): ActivitySummary {
   return {
     connected: false, tracking, windowBucketId: null, afkBucketId: null, activeSeconds: 0, afkSeconds: 0,
+    softIdleSeconds: 0, idleThresholdMinutes,
     apps: [], projects: [], codexActiveSeconds: 0, codexClassifiedSeconds: 0, codexUnclassifiedSeconds: 0,
     codexCoveragePercent: 0, codexContext: EMPTY_CODEX_CONTEXT, timeline: [], attentionSlices: [],
     focus: { status: 'disconnected', label: '采集服务未连接', projectKey: null, app: null, startedAt: null, continuousSeconds: 0, projectTodaySeconds: 0 },

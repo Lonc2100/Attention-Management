@@ -10,7 +10,7 @@ describe('Codex review privacy boundary', () => {
     }
     const activity = {
       connected: true, tracking: true, windowBucketId: 'window', afkBucketId: 'afk',
-      activeSeconds: 600, afkSeconds: 0, codexActiveSeconds: 600,
+      activeSeconds: 600, afkSeconds: 0, softIdleSeconds: 0, idleThresholdMinutes: 15, codexActiveSeconds: 600,
       codexClassifiedSeconds: 600, codexUnclassifiedSeconds: 0, codexCoveragePercent: 100,
       projects: [{ key: 'cwd:secret', label: '自媒体创作', seconds: 600, classified: true as const, identitySource: 'folder' as const, threadCount: 1, latestThreadName: '绝密聊天标题', cwd: 'D:\\private\\secret' }],
       apps: [{ app: 'ChatGPT.exe', seconds: 600, topTitles: [{ title: '绝密窗口标题', seconds: 600 }] }],

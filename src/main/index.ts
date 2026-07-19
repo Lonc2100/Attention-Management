@@ -315,6 +315,20 @@ function invalidateWorkActivityCache(): void {
   workActivityCache.clear()
 }
 
+function idlePolicyKey(): string {
+  const settings = store.getSettings()
+  return JSON.stringify({
+    threshold: settings.idleThresholdMinutes,
+    overrides: store.getIdleOverrides().map((item) => [item.id, item.start, item.end]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+  })
+}
+
+function applyIdlePolicy(): void {
+  const settings = store.getSettings()
+  activityWatch.setIdlePolicy(settings.idleThresholdMinutes, store.getIdleOverrides())
+  invalidateWorkActivityCache()
+}
+
 async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivityDashboard> {
   const cached = workActivityCache.get(mode)
   if (cached && cached.expiresAt > Date.now()) return cached.value
@@ -328,6 +342,7 @@ async function workActivityDashboard(mode: WorkActivityMode): Promise<WorkActivi
     facts = await workActivityFactsCache.resolve(
       chartDates,
       today,
+      idlePolicyKey(),
       (dates) => activityWatch.getDailyActiveDurations(dates, store.getWorkdayBoundaryOverrides())
     )
   } catch (cause) {
@@ -437,6 +452,7 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.updateSettings, (_event, patch: Partial<Settings>) => {
     const settings = store.updateSettings(patch)
+    if (patch.idleThresholdMinutes !== undefined) applyIdlePolicy()
     applyLaunchAtLogin(settings.launchAtLogin)
     if (widgetWindow && !widgetWindow.isDestroyed()) {
       applyWidgetMode(widgetWindow, settings.widgetMode)
@@ -501,7 +517,7 @@ function registerIpc(): void {
     const current = await activityDetails(input.date)
     const selected = current.entries.find((entry) => entry.id === input.entryId
       && entry.start === input.start && entry.end === input.end && entry.app === input.app && entry.title === input.title)
-    if (!selected || !selected.correctable) throw new Error('这条活动已经变化，请刷新后重新选择')
+    if (!selected || !selected.correctable || selected.attribution === 'afk') throw new Error('这条活动已经变化，请刷新后重新选择')
 
     let projectKey = input.projectKey.trim()
     if (projectKey === '__new__') {
@@ -543,6 +559,24 @@ function registerIpc(): void {
   ipcMain.handle(IPC.removeActivityCorrection, async (_event, input: RemoveActivityCorrectionInput) => {
     if (!validDate(input?.date) || typeof input?.overrideId !== 'string') throw new Error('撤销纠错参数无效')
     store.removeActivityOverride(input.date, input.overrideId)
+    return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.addIdleOverride, async (_event, input: { date?: unknown; start?: unknown; end?: unknown }) => {
+    if (!validDate(input?.date) || typeof input?.start !== 'string' || typeof input?.end !== 'string') throw new Error('低交互纠错参数无效')
+    const start = Date.parse(input.start)
+    const end = Date.parse(input.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 24 * 60 * 60 * 1000) throw new Error('低交互纠错时间范围无效')
+    const current = await activityDetails(input.date)
+    const selected = current.entries.find((entry) => entry.attribution === 'afk' && entry.start === input.start && entry.end === input.end)
+    if (!selected) throw new Error('这段离开记录已经变化，请刷新后重试')
+    store.addIdleOverride({ id: randomUUID(), date: input.date, start: input.start, end: input.end, createdAt: Date.now() })
+    applyIdlePolicy()
+    return activityDetails(input.date)
+  })
+  ipcMain.handle(IPC.removeIdleOverride, async (_event, input: { date?: unknown; overrideId?: unknown }) => {
+    if (!validDate(input?.date) || typeof input?.overrideId !== 'string') throw new Error('撤销低交互纠错参数无效')
+    store.removeIdleOverride(input.date, input.overrideId)
+    applyIdlePolicy()
     return activityDetails(input.date)
   })
   ipcMain.handle(IPC.setActivityRuleEnabled, async (_event, input: { date?: unknown; ruleId?: unknown; enabled?: unknown }) => {
@@ -608,6 +642,9 @@ function registerIpc(): void {
     const backup = parseBackupEnvelope(readFileSync(result.filePaths[0], 'utf8'))
     const recoveryPath = join(app.getPath('userData'), `time-efficiency-recovery-${Date.now()}.json`)
     store.restoreData(backup.appData, recoveryPath)
+    applyIdlePolicy()
+    activityWatch.invalidateWorkdayCache()
+    invalidateWorkActivityCache()
     return { restored: true, recoveryPath }
   })
   ipcMain.handle(IPC.exportAggregatedCsv, async () => {
@@ -659,8 +696,9 @@ else {
     store = new AppStore(join(app.getPath('userData'), 'time-efficiency-data.json'))
     workActivityFactsCache = new WorkActivityFactsCache(join(app.getPath('userData'), 'work-activity-facts-v1.json'))
     activityWatch = new ActivityWatchManager(runtimeRoot())
-    codexContextTracker = new CodexContextTracker(activityWatch, new CodexAppServerClient(), store)
     const settings = store.getSettings()
+    activityWatch.setIdlePolicy(settings.idleThresholdMinutes, store.getIdleOverrides())
+    codexContextTracker = new CodexContextTracker(activityWatch, new CodexAppServerClient(), store)
     applyLaunchAtLogin(settings.launchAtLogin)
     registerIpc()
     codexContextTracker.start(() => currentWorkdayKey())

@@ -28,8 +28,8 @@ describe('persisted work activity facts cache', () => {
     })))
     const cache = new WorkActivityFactsCache(file)
 
-    await cache.resolve(['2026-07-15', '2026-07-16'], '2026-07-16', firstLoader)
-    await cache.resolve(['2026-07-15', '2026-07-16'], '2026-07-16', firstLoader)
+    await cache.resolve(['2026-07-15', '2026-07-16'], '2026-07-16', 'idle:15', firstLoader)
+    await cache.resolve(['2026-07-15', '2026-07-16'], '2026-07-16', 'idle:15', firstLoader)
 
     expect(firstLoader.mock.calls.map(([dates]) => dates)).toEqual([
       ['2026-07-15', '2026-07-16'],
@@ -43,12 +43,13 @@ describe('persisted work activity facts cache', () => {
     const result = await afterRestart.resolve(
       ['2026-07-14', '2026-07-15', '2026-07-16'],
       '2026-07-16',
+      'idle:15',
       secondLoader
     )
 
     expect(secondLoader).toHaveBeenCalledWith(['2026-07-14', '2026-07-15', '2026-07-16'])
     expect(result.map((item) => item.activeSeconds)).toEqual([200, 200, 200])
-    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(2)
+    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(3)
   })
 
   it('ignores a corrupt disposable cache and rebuilds it from the source', async () => {
@@ -58,9 +59,9 @@ describe('persisted work activity facts cache', () => {
       date, activeSeconds: 60, observedSeconds: 70, available: true
     })))
 
-    const result = await new WorkActivityFactsCache(file).resolve(['2026-07-16'], '2026-07-16', loader)
+    const result = await new WorkActivityFactsCache(file).resolve(['2026-07-16'], '2026-07-16', 'idle:15', loader)
 
     expect(result[0]?.activeSeconds).toBe(60)
-    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(2)
+    expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(3)
   })
 })

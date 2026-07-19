@@ -11,9 +11,11 @@ describe('ActivityWatch range activity query', () => {
         'window-bucket': { type: 'currentwindow', last_updated: '2026-07-16T12:00:00Z' },
         'afk-bucket': { type: 'afkstatus', last_updated: '2026-07-16T12:00:00Z' }
       }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([[
-        { id: 1, timestamp: '2026-07-15T01:00:00.000Z', duration: 3600, data: {} }
-      ]]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{
+        active: [{ id: 1, timestamp: '2026-07-15T01:00:00.000Z', duration: 3600, data: {} }],
+        window: [{ id: 2, timestamp: '2026-07-15T01:00:00.000Z', duration: 3600, data: { app: 'Code.exe', title: 'work' } }],
+        afk: []
+      }]), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const manager = new ActivityWatchManager('unused')
@@ -45,7 +47,7 @@ describe('ActivityWatch range activity query', () => {
       }), { status: 200 }))
       .mockImplementation(async (_url: string, options: RequestInit) => {
         expect(options.body).toBeTruthy()
-        return new Response(JSON.stringify([[]]), { status: 200 })
+        return new Response(JSON.stringify([{ active: [], window: [], afk: [] }]), { status: 200 })
       })
     vi.stubGlobal('fetch', fetchMock)
 
@@ -68,7 +70,7 @@ describe('ActivityWatch range activity query', () => {
         'window-bucket': { type: 'currentwindow', created: '2026-07-15T08:00:00Z', last_updated: '2026-07-16T12:00:00Z' },
         'afk-bucket': { type: 'afkstatus', created: '2026-07-15T08:01:00Z', last_updated: '2026-07-16T12:00:00Z' }
       }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([[]]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ active: [], window: [], afk: [] }]), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await new ActivityWatchManager('unused').getDailyActiveDurations([
@@ -79,6 +81,25 @@ describe('ActivityWatch range activity query', () => {
     expect(result.every((item) => item.available && item.activeSeconds === 0 && item.lastActiveAt === null)).toBe(true)
     const queryBody = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body)) as { timeperiods: string[] }
     expect(queryBody.timeperiods).toHaveLength(1)
+  })
+
+  it('keeps window activity visible when the AFK bucket is temporarily missing', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        'window-bucket': { id: 'window-bucket', type: 'currentwindow', metadata: { end: '2026-07-16T02:00:00Z' } }
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { id: 1, timestamp: '2026-07-16T01:00:00.000Z', duration: 600, data: { app: 'Code.exe', title: '保留窗口事实' } }
+      ]), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const manager = new ActivityWatchManager('unused', { now: () => Date.parse('2026-07-16T03:00:00.000Z') })
+    const details = await manager.getDetails('2026-07-16')
+
+    expect(details).toMatchObject({ connected: true, partial: true, activeSeconds: 600, afkSeconds: 0 })
+    expect(details.warning).toContain('AFK 数据暂不可用')
+    expect(details.entries[0]).toMatchObject({ app: 'Code.exe', title: '保留窗口事实' })
   })
 
   it('keeps the persisted workday when ActivityWatch is temporarily unavailable', async () => {

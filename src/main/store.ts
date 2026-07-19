@@ -1,10 +1,11 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { ActivityOverride, ActivityRule, CodexContextSample, DailyRecord, Outcome, PrivacyRule, ProjectOption, Settings } from '../shared/contracts'
+import type { ActivityOverride, ActivityRule, CodexContextSample, DailyRecord, IdleOverride, Outcome, PrivacyRule, ProjectOption, Settings } from '../shared/contracts'
+import { DEFAULT_IDLE_THRESHOLD_MINUTES } from '../shared/idle-policy'
 import { emptyRecord } from './date'
 
-export type PersistedDataV7 = {
-  version: 7
+export type PersistedDataV8 = {
+  version: 8
   settings: Settings
   records: Record<string, DailyRecord>
   codexContextSamples: Record<string, CodexContextSample[]>
@@ -15,6 +16,7 @@ export type PersistedDataV7 = {
   privacyRules: PrivacyRule[]
   workdayBoundaryOverrides: Record<string, string>
   lastResolvedWorkdayKey: string | null
+  idleOverrides: Record<string, IdleOverride[]>
 }
 type PersistedDataInput = {
   version?: number
@@ -28,6 +30,7 @@ type PersistedDataInput = {
   privacyRules?: PrivacyRule[]
   workdayBoundaryOverrides?: Record<string, string>
   lastResolvedWorkdayKey?: string | null
+  idleOverrides?: Record<string, IdleOverride[]>
 }
 
 const MAX_CONTEXT_SAMPLES_PER_DAY = 5_000
@@ -44,6 +47,10 @@ function normalizeRecord(record: DailyRecord): DailyRecord {
   return { ...record, outcomes: Array.isArray(record.outcomes) ? record.outcomes.map(normalizeOutcome) : [] }
 }
 
+function normalizeIdleThreshold(value: unknown): number {
+  return [5, 10, 15, 20, 30].includes(Number(value)) ? Number(value) : DEFAULT_IDLE_THRESHOLD_MINUTES
+}
+
 export const defaultSettings: Settings = {
   launchAtLogin: true,
   trackingEnabled: true,
@@ -53,11 +60,12 @@ export const defaultSettings: Settings = {
   widgetMode: 'always-on-top',
   widgetExpanded: false,
   widgetPosition: null,
-  onboardingCompletedAt: null
+  onboardingCompletedAt: null,
+  idleThresholdMinutes: DEFAULT_IDLE_THRESHOLD_MINUTES
 }
 
 export class AppStore {
-  private data: PersistedDataV7
+  private data: PersistedDataV8
   private migrationRequired = false
 
   constructor(private readonly filePath: string) {
@@ -74,7 +82,8 @@ export class AppStore {
   }
 
   updateSettings(patch: Partial<Settings>): Settings {
-    this.data.settings = { ...this.data.settings, ...patch, aiProvider: 'codex-cli' }
+    const next = { ...this.data.settings, ...patch, aiProvider: 'codex-cli' as const }
+    this.data.settings = { ...next, idleThresholdMinutes: normalizeIdleThreshold(next.idleThresholdMinutes) }
     this.save()
     return this.getSettings()
   }
@@ -188,6 +197,26 @@ export class AppStore {
     return this.getActivityOverrides(date)
   }
 
+  getIdleOverrides(date?: string): IdleOverride[] {
+    const values = date ? (this.data.idleOverrides[date] ?? []) : Object.values(this.data.idleOverrides).flat()
+    return structuredClone(values)
+  }
+
+  addIdleOverride(override: IdleOverride): IdleOverride[] {
+    const current = this.data.idleOverrides[override.date] ?? []
+    this.data.idleOverrides[override.date] = [...current.filter((item) => item.id !== override.id), structuredClone(override)]
+      .sort((a, b) => a.start.localeCompare(b.start))
+    this.save()
+    return this.getIdleOverrides(override.date)
+  }
+
+  removeIdleOverride(date: string, overrideId: string): IdleOverride[] {
+    this.data.idleOverrides[date] = (this.data.idleOverrides[date] ?? []).filter((item) => item.id !== overrideId)
+    if (!this.data.idleOverrides[date]?.length) delete this.data.idleOverrides[date]
+    this.save()
+    return this.getIdleOverrides(date)
+  }
+
   getManualProjects(): Record<string, string> {
     return { ...this.data.manualProjects }
   }
@@ -279,7 +308,7 @@ export class AppStore {
     return this.getPrivacyRules()
   }
 
-  exportData(): PersistedDataV7 {
+  exportData(): PersistedDataV8 {
     return structuredClone(this.data)
   }
 
@@ -299,18 +328,18 @@ export class AppStore {
     this.save()
   }
 
-  private load(): PersistedDataV7 {
+  private load(): PersistedDataV8 {
     try {
       if (existsSync(this.filePath)) {
         const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as PersistedDataInput
-        this.migrationRequired = parsed.version !== 7
+        this.migrationRequired = parsed.version !== 8
         return this.hydrate(parsed)
       }
     } catch (error) {
       console.error('Failed to load app data:', error)
     }
     return {
-      version: 7,
+      version: 8,
       settings: { ...defaultSettings },
       records: {},
       codexContextSamples: {},
@@ -320,14 +349,20 @@ export class AppStore {
       manualProjects: {},
       privacyRules: [],
       workdayBoundaryOverrides: {},
-      lastResolvedWorkdayKey: null
+      lastResolvedWorkdayKey: null,
+      idleOverrides: {}
     }
   }
 
-  private hydrate(parsed: PersistedDataInput): PersistedDataV7 {
+  private hydrate(parsed: PersistedDataInput): PersistedDataV8 {
     return {
-      version: 7,
-      settings: { ...defaultSettings, ...parsed.settings, aiProvider: 'codex-cli' },
+      version: 8,
+      settings: {
+        ...defaultSettings,
+        ...parsed.settings,
+        idleThresholdMinutes: normalizeIdleThreshold(parsed.settings?.idleThresholdMinutes),
+        aiProvider: 'codex-cli'
+      },
       records: Object.fromEntries(Object.entries(parsed.records ?? {}).map(([date, record]) => [date, normalizeRecord(record)])),
       codexContextSamples: parsed.codexContextSamples ?? {},
       projectAliases: parsed.projectAliases ?? {},
@@ -336,7 +371,13 @@ export class AppStore {
       manualProjects: parsed.manualProjects ?? {},
       privacyRules: Array.isArray(parsed.privacyRules) ? parsed.privacyRules.filter((rule): rule is PrivacyRule => Boolean(rule) && typeof rule.id === 'string' && typeof rule.app === 'string' && typeof rule.titlePattern === 'string' && typeof rule.enabled === 'boolean' && typeof rule.createdAt === 'number') : [],
       workdayBoundaryOverrides: Object.fromEntries(Object.entries(parsed.workdayBoundaryOverrides ?? {}).filter(([date, value]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof value === 'string' && Number.isFinite(Date.parse(value)))),
-      lastResolvedWorkdayKey: typeof parsed.lastResolvedWorkdayKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastResolvedWorkdayKey) ? parsed.lastResolvedWorkdayKey : null
+      lastResolvedWorkdayKey: typeof parsed.lastResolvedWorkdayKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastResolvedWorkdayKey) ? parsed.lastResolvedWorkdayKey : null,
+      idleOverrides: Object.fromEntries(Object.entries(parsed.idleOverrides ?? {}).map(([date, values]) => [date,
+        Array.isArray(values) ? values.filter((item): item is IdleOverride => Boolean(item)
+          && typeof item.id === 'string' && item.date === date && typeof item.start === 'string' && typeof item.end === 'string'
+          && Number.isFinite(Date.parse(item.start)) && Number.isFinite(Date.parse(item.end)) && Date.parse(item.end) > Date.parse(item.start)
+          && typeof item.createdAt === 'number') : []
+      ]).filter(([, values]) => values.length > 0))
     }
   }
 

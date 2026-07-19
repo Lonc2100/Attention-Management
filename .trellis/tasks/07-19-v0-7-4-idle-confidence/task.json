@@ -1,0 +1,15 @@
+{
+  "id": "07-19-v0-7-4-idle-confidence",
+  "name": "07-19-v0-7-4-idle-confidence",
+  "title": "v0.7.4 低交互时间与统一统计口径",
+  "description": "避免把短暂无输入直接等同于离开电脑，统一首页、明细、热力图和 Codex 项目统计，并支持阈值与单段纠正。",
+  "status": "in_progress",
+  "priority": "P0",
+  "creator": "王龙",
+  "assignee": "王龙",
+  "createdAt": "2026-07-19",
+  "completedAt": null,
+  "base_branch": "main",
+  "commit": null,
+  "meta": {}
+}

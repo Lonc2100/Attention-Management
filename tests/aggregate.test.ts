@@ -22,7 +22,7 @@ describe('ActivityWatch aggregation', () => {
     const afk: ActivityEvent[] = [
       { id: 3, timestamp: '2026-07-14T01:05:00.000Z', duration: 300, data: { status: 'afk' } }
     ]
-    const result = aggregateActivity(windows, afk, [], true, { window: 'window', afk: 'afk' })
+    const result = aggregateActivity(windows, afk, [], true, { window: 'window', afk: 'afk' }, [], {}, undefined, Date.now(), [], [], {}, [], undefined, 3)
     expect(result.activeSeconds).toBe(600)
     expect(result.afkSeconds).toBe(300)
     expect(result.apps[0]).toMatchObject({ app: 'Code.exe', seconds: 300 })

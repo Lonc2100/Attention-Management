@@ -10,10 +10,19 @@ import type {
   AfkNote,
   CodexContextSample,
   CodexContextStatus,
+  IdleOverride,
   PrivacyRule,
   WorkdayBoundaryInfo
 } from '../shared/contracts'
 import type { DailyWorkActivity } from '../shared/work-activity'
+import {
+  DEFAULT_IDLE_THRESHOLD_MINUTES,
+  classifyIdleIntervals,
+  idleOverrideIntervals,
+  intersectIntervals,
+  intervalsFromEvents,
+  mergeIntervals
+} from '../shared/idle-policy'
 import {
   buildWorkdayModel,
   currentWorkdayKey as modelCurrentWorkdayKey,
@@ -122,6 +131,8 @@ export class ActivityWatchManager {
   private recoveryStatus: HealthResult = { ok: true, detail: '尚未触发恢复' }
   private lastResolvedWorkdayKey: string | null = null
   private currentWorkdayCache: { expiresAt: number; overrideKey: string; value: string } | null = null
+  private idleThresholdMinutes = DEFAULT_IDLE_THRESHOLD_MINUTES
+  private idleOverrides: IdleOverride[] = []
 
   constructor(private readonly runtimeRoot: string, options: ActivityWatchManagerOptions = {}) {
     this.now = options.now ?? Date.now
@@ -130,6 +141,14 @@ export class ActivityWatchManager {
       return Number(stats.bavail) * Number(stats.bsize)
     })
     this.startedAt = this.now()
+  }
+
+  setIdlePolicy(thresholdMinutes: number, overrides: IdleOverride[] = []): void {
+    this.idleThresholdMinutes = [5, 10, 15, 20, 30].includes(thresholdMinutes)
+      ? thresholdMinutes
+      : DEFAULT_IDLE_THRESHOLD_MINUTES
+    this.idleOverrides = structuredClone(overrides)
+    this.invalidateWorkdayCache()
   }
 
   async ensureStarted(tracking: boolean): Promise<void> {
@@ -181,34 +200,37 @@ export class ActivityWatchManager {
       const windowBucket = this.newestBucket(buckets, 'currentwindow')
       const afkBucket = this.newestBucket(buckets, 'afkstatus')
       const resolved = await this.resolveWorkday(date, workdayOverrides, buckets)
-      const [windowEvents, afkEvents] = await Promise.all([
-        windowBucket && resolved.range ? this.getEventsRange(windowBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([]),
-        afkBucket && resolved.range ? this.getEventsRange(afkBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([])
-      ])
+      const canonical = windowBucket && resolved.range
+        ? afkBucket
+          ? await this.queryCanonicalEvents(windowBucket.id, afkBucket.id, resolved.range.start, resolved.range.end)
+          : { window: await this.getEventsRange(windowBucket.id, resolved.range.start, resolved.range.end), afk: [] }
+        : { window: [], afk: [] }
       const liveState = modelCurrentWorkdayKey(resolved.model, this.now()) === date
         ? await this.getCurrentState()
         : undefined
       return {
         ...aggregateActivity(
-        windowEvents,
-        afkEvents,
-        notes,
-        this.tracking,
-        { window: windowBucket?.id ?? null, afk: afkBucket?.id ?? null },
-        contextSamples,
-        projectAliases,
-        codexContext,
-        Date.now(),
-        rules,
-        overrides,
-        manualProjects,
-        privacyRules,
-        liveState
+          canonical.window,
+          canonical.afk,
+          notes,
+          this.tracking,
+          { window: windowBucket?.id ?? null, afk: afkBucket?.id ?? null },
+          contextSamples,
+          projectAliases,
+          codexContext,
+          Date.now(),
+          rules,
+          overrides,
+          manualProjects,
+          privacyRules,
+          liveState,
+          this.idleThresholdMinutes,
+          this.idleOverrides
         ),
         workday: resolved.info
       }
     } catch (error) {
-      return disconnectedSummary(this.tracking, error)
+      return disconnectedSummary(this.tracking, error, this.idleThresholdMinutes)
     }
   }
 
@@ -277,10 +299,11 @@ export class ActivityWatchManager {
     if (end <= start) return []
     const query = [
       `events = flood(query_bucket(${JSON.stringify(windowBucketId)}));`,
-      `not_afk = flood(query_bucket(${JSON.stringify(afkBucketId)}));`,
+      `afk = flood(query_bucket(${JSON.stringify(afkBucketId)}));`,
+      'not_afk = afk;',
       'not_afk = filter_keyvals(not_afk, "status", ["not-afk"]);',
       'active_events = filter_period_intersect(events, not_afk);',
-      'RETURN = period_union(active_events, []);'
+      'RETURN = {"active": period_union(active_events, []), "window": period_union(events, []), "afk": afk};'
     ]
     const response = await fetch(`${API}/query/`, {
       method: 'POST',
@@ -289,15 +312,43 @@ export class ActivityWatchManager {
       signal: AbortSignal.timeout(30_000)
     })
     if (!response.ok) throw new Error(`读取 ActivityWatch 区间统计失败：HTTP ${response.status}`)
-    const values = await response.json() as ActivityEvent[][]
-    if (!Array.isArray(values) || !Array.isArray(values[0])) throw new Error('ActivityWatch 活动区间返回格式异常')
-    return values[0].flatMap((event) => {
-      const eventStart = Date.parse(event.timestamp)
-      const eventEnd = eventStart + Number(event.duration) * 1000
-      return Number.isFinite(eventStart) && Number.isFinite(eventEnd) && eventEnd > eventStart
-        ? [{ start: eventStart, end: eventEnd }]
-        : []
+    const values = await response.json() as Array<{ active?: ActivityEvent[]; window?: ActivityEvent[]; afk?: ActivityEvent[] }>
+    const value = values[0]
+    if (!value || !Array.isArray(value.active) || !Array.isArray(value.window) || !Array.isArray(value.afk)) {
+      throw new Error('ActivityWatch 活动区间返回格式异常')
+    }
+    const idle = classifyIdleIntervals(value.afk, this.idleThresholdMinutes, this.idleOverrides)
+    const windowIntervals = intervalsFromEvents(value.window)
+    const additions = intersectIntervals(windowIntervals, mergeIntervals([
+      ...idle.soft,
+      ...idleOverrideIntervals(this.idleOverrides)
+    ]))
+    return mergeIntervals([...intervalsFromEvents(value.active), ...additions])
+  }
+
+  private async queryCanonicalEvents(
+    windowBucketId: string,
+    afkBucketId: string,
+    start: number,
+    end: number
+  ): Promise<{ window: ActivityEvent[]; afk: ActivityEvent[] }> {
+    if (end <= start) return { window: [], afk: [] }
+    const query = [
+      `events = flood(query_bucket(${JSON.stringify(windowBucketId)}));`,
+      `afk = flood(query_bucket(${JSON.stringify(afkBucketId)}));`,
+      'RETURN = {"window": events, "afk": afk};'
+    ]
+    const response = await fetch(`${API}/query/`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query, timeperiods: [`${new Date(start).toISOString()}/${new Date(end).toISOString()}`] }),
+      signal: AbortSignal.timeout(30_000)
     })
+    if (!response.ok) throw new Error(`读取 ActivityWatch canonical events 失败：HTTP ${response.status}`)
+    const values = await response.json() as Array<{ window?: ActivityEvent[]; afk?: ActivityEvent[] }>
+    const value = values[0]
+    if (!value || !Array.isArray(value.window) || !Array.isArray(value.afk)) throw new Error('ActivityWatch canonical events 返回格式异常')
+    return { window: value.window, afk: value.afk }
   }
 
   private async getActiveIntervalsBatched(
@@ -321,7 +372,19 @@ export class ActivityWatchManager {
     const availableBuckets = buckets ?? await this.getBuckets()
     const windowBucket = this.newestBucket(availableBuckets, 'currentwindow')
     const afkBucket = this.newestBucket(availableBuckets, 'afkstatus')
-    if (!windowBucket || !afkBucket) throw new Error('ActivityWatch 窗口或 AFK 数据源不可用')
+    if (!windowBucket) throw new Error('ActivityWatch 窗口数据源不可用')
+    if (!afkBucket) {
+      const bounds = dayBounds(date)
+      const manualStart = Date.parse(workdayOverrides[date] ?? '')
+      const start = Number.isFinite(manualStart) ? manualStart : Date.parse(bounds.start)
+      return {
+        model: buildWorkdayModel([], workdayOverrides),
+        range: { start, end: Math.min(Date.parse(bounds.end), this.now() + 60_000) },
+        info: Number.isFinite(manualStart)
+          ? { workdayKey: date, startsAt: new Date(manualStart).toISOString(), source: 'manual' }
+          : undefined
+      }
+    }
     const start = Date.parse(dayBounds(this.shiftDate(date, -3)).start)
     const end = Math.min(Date.parse(dayBounds(this.shiftDate(date, 3)).end), this.now() + 60_000)
     const model = buildWorkdayModel(
@@ -358,18 +421,22 @@ export class ActivityWatchManager {
       const windowBucket = this.newestBucket(buckets, 'currentwindow')
       const afkBucket = this.newestBucket(buckets, 'afkstatus')
       const resolved = await this.resolveWorkday(date, workdayOverrides, buckets)
-      const [windowEvents, afkEvents] = await Promise.all([
-        windowBucket && resolved.range ? this.getEventsRange(windowBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([]),
-        afkBucket && resolved.range ? this.getEventsRange(afkBucket.id, resolved.range.start, resolved.range.end) : Promise.resolve([])
-      ])
-      const classified = classifyActivityDay(windowEvents, afkEvents, contextSamples, projectAliases, rules, overrides, manualProjects)
+      const canonical = windowBucket && resolved.range
+        ? afkBucket
+          ? await this.queryCanonicalEvents(windowBucket.id, afkBucket.id, resolved.range.start, resolved.range.end)
+          : { window: await this.getEventsRange(windowBucket.id, resolved.range.start, resolved.range.end), afk: [] }
+        : { window: [], afk: [] }
+      const classified = classifyActivityDay(
+        canonical.window, canonical.afk, contextSamples, projectAliases, rules, overrides, manualProjects,
+        this.idleThresholdMinutes, this.idleOverrides
+      )
       const privateEntry = (entry: ActivityDetails['entries'][number]) => privacyRules.some((rule) => rule.enabled
         && rule.app.trim().toLocaleLowerCase() === entry.app.trim().toLocaleLowerCase()
         && entry.title.toLocaleLowerCase().includes(rule.titlePattern.trim().toLocaleLowerCase()))
       const entries = classified.entries.map((entry) => privateEntry(entry) ? {
         ...entry, id: `private:${entry.start}:${entry.end}`, app: '已隐藏活动', title: '已按隐私规则隐藏',
         projectKey: null, projectLabel: '已隐藏活动', attribution: 'application' as const,
-        ruleId: null, overrideId: null, classified: false, correctable: false
+        ruleId: null, overrideId: null, idleOverrideId: null, classified: false, correctable: false
       } : entry)
       const projectOptions = new Map<string, { key: string; label: string; source: 'folder' | 'thread' | 'fallback' | 'alias' | 'manual' }>()
       for (const sample of contextSamples) {
@@ -393,6 +460,8 @@ export class ActivityWatchManager {
         rangeEnd,
         activeSeconds: classified.activeSeconds,
         afkSeconds: classified.afkSeconds,
+        softIdleSeconds: classified.softIdleSeconds,
+        idleThresholdMinutes: this.idleThresholdMinutes,
         entries,
         projectOptions: [...projectOptions.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN')),
         rules,
@@ -411,6 +480,8 @@ export class ActivityWatchManager {
         rangeEnd: null,
         activeSeconds: 0,
         afkSeconds: 0,
+        softIdleSeconds: 0,
+        idleThresholdMinutes: this.idleThresholdMinutes,
         entries: [],
         projectOptions: [],
         rules,
@@ -514,12 +585,13 @@ export class ActivityWatchManager {
     if (!windowEvent || !windowFresh || !afkEvent || !afkFresh) {
       return { app: '', title: '', isAfk: true, fresh: false }
     }
+    const isAfk = afkEvent.data.status === 'afk' && afkEvent.duration >= this.idleThresholdMinutes * 60
     return {
       app: windowEvent.data.app ?? '',
       title: windowEvent.data.title ?? '',
-      isAfk: afkEvent.data.status === 'afk',
+      isAfk,
       fresh: true,
-      startedAt: afkEvent.data.status === 'afk' ? afkEvent.timestamp : null
+      startedAt: isAfk ? afkEvent.timestamp : null
     }
   }
 

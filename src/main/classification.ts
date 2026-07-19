@@ -4,11 +4,18 @@ import type {
   ActivityOverride,
   ActivityRule,
   AfkPeriod,
-  CodexContextSample
+  CodexContextSample,
+  IdleOverride
 } from '../shared/contracts'
+import {
+  classifyIdleIntervals,
+  intersectIntervals,
+  intervalSeconds,
+  intervalsFromEvents,
+  subtractIntervals,
+  type TimeInterval
+} from '../shared/idle-policy'
 import { identityForSample, isCodexWindow } from './project-attribution'
-
-type TimeInterval = { start: number; end: number }
 
 export interface ClassifiedSegment extends ActivityDetailEntry {
   startMs: number
@@ -22,30 +29,7 @@ export interface ClassifiedActivityDay {
   afkPeriods: AfkPeriod[]
   activeSeconds: number
   afkSeconds: number
-}
-
-function mergeIntervals(intervals: TimeInterval[]): TimeInterval[] {
-  const merged: TimeInterval[] = []
-  for (const interval of intervals.filter((item) => item.end > item.start).sort((a, b) => a.start - b.start)) {
-    const last = merged[merged.length - 1]
-    if (!last || interval.start > last.end) merged.push({ ...interval })
-    else last.end = Math.max(last.end, interval.end)
-  }
-  return merged
-}
-
-function subtractIntervals(start: number, end: number, excluded: TimeInterval[]): TimeInterval[] {
-  let cursor = start
-  const result: TimeInterval[] = []
-  for (const interval of excluded) {
-    if (interval.end <= cursor) continue
-    if (interval.start >= end) break
-    if (interval.start > cursor) result.push({ start: cursor, end: Math.min(interval.start, end) })
-    cursor = Math.max(cursor, interval.end)
-    if (cursor >= end) break
-  }
-  if (cursor < end) result.push({ start: cursor, end })
-  return result
+  softIdleSeconds: number
 }
 
 function normalized(value: string): string {
@@ -93,6 +77,10 @@ function overrideAt(overrides: ActivityOverride[], app: string, title: string, s
   }) ?? null
 }
 
+function idleOverrideAt(overrides: IdleOverride[], start: number, end: number): IdleOverride | null {
+  return overrides.find((item) => Date.parse(item.start) <= start && Date.parse(item.end) >= end) ?? null
+}
+
 function publicEntry(segment: ClassifiedSegment): ActivityDetailEntry {
   const { startMs: _startMs, endMs: _endMs, sample: _sample, ...entry } = segment
   return entry
@@ -111,6 +99,7 @@ function mergeSegments(segments: ClassifiedSegment[]): ClassifiedSegment[] {
       && last.attribution === segment.attribution
       && last.ruleId === segment.ruleId
       && last.overrideId === segment.overrideId
+      && last.idleOverrideId === segment.idleOverrideId
     if (same) {
       last.endMs = segment.endMs
       last.end = segment.end
@@ -128,17 +117,19 @@ export function classifyActivityDay(
   projectAliases: Record<string, string> = {},
   rules: ActivityRule[] = [],
   overrides: ActivityOverride[] = [],
-  manualProjects: Record<string, string> = {}
+  manualProjects: Record<string, string> = {},
+  idleThresholdMinutes = 15,
+  idleOverrides: IdleOverride[] = []
 ): ClassifiedActivityDay {
   const samples = [...contextSamples].sort((a, b) => a.detectedAt - b.detectedAt)
-  const afkPeriods: AfkPeriod[] = afkEvents
-    .filter((event) => event.data.status === 'afk' && event.duration > 0)
-    .map((event) => ({
-      start: event.timestamp,
-      end: new Date(Date.parse(event.timestamp) + event.duration * 1000).toISOString(),
-      seconds: event.duration
-    }))
-  const afkIntervals = mergeIntervals(afkPeriods.map((item) => ({ start: Date.parse(item.start), end: Date.parse(item.end) })))
+  const idle = classifyIdleIntervals(afkEvents, idleThresholdMinutes, idleOverrides)
+  const afkIntervals = idle.hard
+  const afkPeriods: AfkPeriod[] = afkIntervals.map((item) => ({
+    start: new Date(item.start).toISOString(),
+    end: new Date(item.end).toISOString(),
+    seconds: (item.end - item.start) / 1000
+  }))
+  const softIdleSeconds = intervalSeconds(intersectIntervals(intervalsFromEvents(windowEvents), idle.soft))
   const drafts: ClassifiedSegment[] = afkIntervals.map((item) => ({
     id: `afk:${item.start}:${item.end}`,
     start: new Date(item.start).toISOString(),
@@ -151,8 +142,9 @@ export function classifyActivityDay(
     attribution: 'afk',
     ruleId: null,
     overrideId: null,
+    idleOverrideId: null,
     classified: false,
-    correctable: false,
+    correctable: true,
     startMs: item.start,
     endMs: item.end,
     sample: null
@@ -163,7 +155,7 @@ export function classifyActivityDay(
     const eventEnd = eventStart + event.duration * 1000
     const app = event.data.app?.trim() || '未知应用'
     const title = event.data.title?.trim() || '无标题'
-    for (const active of subtractIntervals(eventStart, eventEnd, afkIntervals)) {
+    for (const active of subtractIntervals([{ start: eventStart, end: eventEnd }], afkIntervals)) {
       const boundaries = new Set<number>([active.start, active.end])
       for (const override of overrides) {
         if (normalized(override.app) !== normalized(app) || override.title !== title) continue
@@ -174,6 +166,12 @@ export function classifyActivityDay(
       }
       for (const rule of rules) {
         if (rule.appliesFrom > active.start && rule.appliesFrom < active.end) boundaries.add(rule.appliesFrom)
+      }
+      for (const idleOverride of idleOverrides) {
+        const start = Date.parse(idleOverride.start)
+        const end = Date.parse(idleOverride.end)
+        if (start > active.start && start < active.end) boundaries.add(start)
+        if (end > active.start && end < active.end) boundaries.add(end)
       }
       if (isCodexWindow(app, title)) {
         for (const sample of samples) {
@@ -186,6 +184,7 @@ export function classifyActivityDay(
         const end = points[index + 1]
         if (start === undefined || end === undefined || end <= start) continue
         const manual = overrideAt(overrides, app, title, start, end)
+        const idleManual = idleOverrideAt(idleOverrides, start, end)
         const rule = manual ? null : rules.find((item) => ruleMatches(item, app, title, start)) ?? null
         const sample = !manual && !rule && isCodexWindow(app, title) ? sampleAt(samples, start) : null
         let projectKey: string | null = null
@@ -220,6 +219,7 @@ export function classifyActivityDay(
           attribution,
           ruleId: rule?.id ?? null,
           overrideId: manual?.id ?? null,
+          idleOverrideId: idleManual?.id ?? null,
           classified: projectKey !== null,
           correctable: true,
           startMs: start,
@@ -233,5 +233,5 @@ export function classifyActivityDay(
   const segments = mergeSegments(drafts)
   const activeSeconds = segments.filter((item) => item.attribution !== 'afk').reduce((total, item) => total + item.seconds, 0)
   const afkSeconds = afkIntervals.reduce((total, item) => total + (item.end - item.start) / 1000, 0)
-  return { segments, entries: segments.map(publicEntry), afkPeriods, activeSeconds, afkSeconds }
+  return { segments, entries: segments.map(publicEntry), afkPeriods, activeSeconds, afkSeconds, softIdleSeconds }
 }

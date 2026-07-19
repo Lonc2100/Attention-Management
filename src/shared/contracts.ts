@@ -41,6 +41,7 @@ export interface Settings {
   widgetExpanded: boolean
   widgetPosition: { x: number; y: number; displayId: string } | null
   onboardingCompletedAt: string | null
+  idleThresholdMinutes: number
 }
 
 /** A local display rule; ActivityWatch's source events are never modified. */
@@ -175,6 +176,8 @@ export interface ActivitySummary {
   afkBucketId: string | null
   activeSeconds: number
   afkSeconds: number
+  softIdleSeconds: number
+  idleThresholdMinutes: number
   apps: AppUsage[]
   projects: ProjectUsage[]
   codexActiveSeconds: number
@@ -312,6 +315,15 @@ export interface ActivityOverride {
   createdAt: number
 }
 
+/** A reversible local decision to count one major-idle interval as work. */
+export interface IdleOverride {
+  id: string
+  date: string
+  start: string
+  end: string
+  createdAt: number
+}
+
 export interface ActivityDetailEntry {
   id: string
   start: string
@@ -324,6 +336,7 @@ export interface ActivityDetailEntry {
   attribution: ActivityAttribution
   ruleId: string | null
   overrideId: string | null
+  idleOverrideId: string | null
   classified: boolean
   correctable: boolean
 }
@@ -336,6 +349,8 @@ export interface ActivityDetails {
   rangeEnd: string | null
   activeSeconds: number
   afkSeconds: number
+  softIdleSeconds: number
+  idleThresholdMinutes: number
   entries: ActivityDetailEntry[]
   projectOptions: ProjectOption[]
   rules: ActivityRule[]
@@ -409,6 +424,12 @@ export interface RemoveActivityCorrectionInput {
   overrideId: string
 }
 
+export interface IdleOverrideInput {
+  date: string
+  start: string
+  end: string
+}
+
 export interface ActivityRuleMutationInput {
   date: string
   ruleId: string
@@ -434,6 +455,8 @@ export interface TimeEfficiencyApi {
   removeWorkdayBoundary(input: { date: string }): Promise<ActivityDetails>
   saveActivityCorrection(input: SaveActivityCorrectionInput): Promise<ActivityDetails>
   removeActivityCorrection(input: RemoveActivityCorrectionInput): Promise<ActivityDetails>
+  addIdleOverride(input: IdleOverrideInput): Promise<ActivityDetails>
+  removeIdleOverride(input: { date: string; overrideId: string }): Promise<ActivityDetails>
   setActivityRuleEnabled(input: ActivityRuleMutationInput & { enabled: boolean }): Promise<ActivityDetails>
   moveActivityRule(input: MoveActivityRuleInput): Promise<ActivityDetails>
   removeActivityRule(input: ActivityRuleMutationInput): Promise<ActivityDetails>
@@ -470,6 +493,8 @@ export const IPC = {
   removeWorkdayBoundary: 'activity:remove-workday-boundary',
   saveActivityCorrection: 'activity:save-correction',
   removeActivityCorrection: 'activity:remove-correction',
+  addIdleOverride: 'activity:add-idle-override',
+  removeIdleOverride: 'activity:remove-idle-override',
   setActivityRuleEnabled: 'activity:rule-enabled',
   moveActivityRule: 'activity:rule-move',
   removeActivityRule: 'activity:rule-remove',

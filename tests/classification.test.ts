@@ -48,16 +48,16 @@ describe('activity classification', () => {
     expect(result.entries).toEqual([expect.objectContaining({ attribution: 'rule', projectKey: 'manual:b', ruleId: 'first' })])
   })
 
-  it('subtracts AFK and keeps the source title as inspectable evidence', () => {
+  it('subtracts major AFK and keeps the source title as inspectable evidence', () => {
     const result = classifyActivityDay(
       [{ id: 1, timestamp: '2026-07-15T03:00:00.000Z', duration: 600, data: { app: 'Code.exe', title: '成果页面' } }],
-      [{ id: 2, timestamp: '2026-07-15T03:04:00.000Z', duration: 120, data: { status: 'afk' } }],
-      [], {}, [], [], {}
+      [{ id: 2, timestamp: '2026-07-15T03:04:00.000Z', duration: 180, data: { status: 'afk' } }],
+      [], {}, [], [], {}, 3
     )
-    expect(result.activeSeconds).toBe(480)
+    expect(result.activeSeconds).toBe(420)
     expect(result.entries.filter((entry) => entry.attribution !== 'afk').map((entry) => [entry.title, entry.seconds])).toEqual([
-      ['成果页面', 240], ['成果页面', 240]
+      ['成果页面', 240], ['成果页面', 180]
     ])
-    expect(result.entries.find((entry) => entry.attribution === 'afk')).toMatchObject({ seconds: 120, correctable: false })
+    expect(result.entries.find((entry) => entry.attribution === 'afk')).toMatchObject({ seconds: 180, correctable: true })
   })
 })

@@ -4,6 +4,7 @@
 
 | 版本 | 标题 | 需求内容 | PRD 链接 |
 |---|---|---|---|
+| PRD-v0.7.4 | 低交互时间与统一统计口径 | 默认以 15 分钟区分低交互推定工作与主要离开；首页、明细、热力图、个人规律和 Codex 归属统一口径。支持阈值设置及可撤销的单段人工计入，不改写 ActivityWatch 原始事件。 | [查看 PRD](../.trellis/tasks/07-19-v0-7-4-idle-confidence/prd.md) |
 | PRD-v0.7.3 | 跨午夜工作日边界 | 跨午夜连续活动归入前一工作日；主要休息结束后开启新工作日；白天后续长离开不切日。增加最晚离开电脑指标及可撤销的人工边界纠正。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-19-v0-7-3-workday-boundary/prd.md) |
 | PRD-v0.7.2 | 采集可靠性热修复 | 修复 ActivityWatch 子进程 stdout 背压；将全年查询改为 31 日上限和派生缓存；增加事件新鲜度、磁盘预警、进程退出与仅限自有进程的退避恢复。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-17-v0-7-2-collector-reliability/prd.md) |
 | PRD-v0.7.1 | 首页信息层级收敛 | 删除重复大标题、顶部次要指标和长成果说明，将当前项目、今日投入、优先成果及记录状态压缩为单条状态栏；宽屏并排展示工作活动热力图与注意力圆环。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-16-v0-7-1-dashboard-hierarchy/prd.md) |

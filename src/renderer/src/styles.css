@@ -221,7 +221,7 @@ html:has(body.widget-body),body.widget-body { background:#0d151a; }
 .dashboard-analysis-grid .attention-donut { width: 142px; height: 142px; }
 .dashboard-analysis-grid .attention-donut__center { inset: 30px; }
 .dashboard-analysis-grid .attention-donut__center strong { font-size: 14px; }
-.dashboard-analysis-grid .donut-wrap > p { display: none; }
+.dashboard-analysis-grid .donut-wrap > p { display: block; max-width: 155px; margin: 6px auto 0; color: var(--text-muted); font-size: 8px; line-height: 1.35; }
 .dashboard-analysis-grid .attention-legend { grid-template-columns: 1fr; max-height: 168px; overflow: auto; }
 .dashboard-analysis-grid .attention-legend > button { padding: 5px 6px; }
 

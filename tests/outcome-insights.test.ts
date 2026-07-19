@@ -32,6 +32,8 @@ function activity(timeline: TimelineSlice[]): ActivitySummary {
     afkBucketId: 'afk',
     activeSeconds,
     afkSeconds: timeline.filter((slice) => slice.kind === 'afk').reduce((sum, slice) => sum + slice.seconds, 0),
+    softIdleSeconds: 0,
+    idleThresholdMinutes: 15,
     apps: [],
     projects: [
       { key: 'project:one', label: '时间效率助手', seconds: 0, classified: true, identitySource: 'folder', threadCount: 1, latestThreadName: null, cwd: null },

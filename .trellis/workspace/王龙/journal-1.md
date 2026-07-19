@@ -239,3 +239,34 @@ Translated the GSAP-inspired editorial core into finite desktop UI tokens and co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: v0.7.3 跨午夜工作日边界
+
+**Date**: 2026-07-19
+**Task**: v0.7.3 workday boundary
+**Branch**: `main`
+
+### Summary
+
+跨午夜连续活动改归开始工作日，主要休息后的首次返回开启新工作日；白天后续长离开不重复切日。增加最晚离开电脑、人工边界纠正、断连回退和实时 AFK 分离。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `39b1f12` | feat: add cross-midnight workday boundaries |
+
+### Testing
+
+- 80 项自动化测试通过；3 项外部 Codex 集成测试按设计跳过。
+- 连续两轮 Electron E2E 各 17 项通过；安装包 smoke 通过。
+- 真实 v0.7.2/schema 6 → v0.7.3/schema 7 覆盖升级完成，数据与自启动保留。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在日常使用中观察 6 小时默认主要休息阈值；误判可在活动明细中人工调整并反馈。

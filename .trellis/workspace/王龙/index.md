@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-19 | v0.7.3 跨午夜工作日边界 | `39b1f12` | `main` |
 | 7 | 2026-07-17 | v0.7.2 collector reliability hotfix | `ee7691f`, `88c3f4e` | `main` |
 | 6 | 2026-07-16 | v0.7.0 首页工作活动与安静悬浮胶囊 | `261d9e2`, `a79fd36`, `b0a4d2f` | `main` |
 | 5 | 2026-07-16 | Editorial component guideline adoption | `20c3853` | `main` |

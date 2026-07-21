@@ -9,6 +9,12 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "init:electron-harness-lite": "node scripts/init-electron-harness-lite.mjs",
+    "context:check": "node scripts/context-check.mjs",
+    "lint:arch": "node scripts/electron-harness-lint.mjs",
+    "test:structure": "node --test tests/harness-structure.test.mjs tests/electron-harness-lint.test.mjs",
+    "verify:harness": "npm run context:check && npm run lint:arch && npm run test:structure",
+    "verify": "npm run verify:harness && npm run typecheck && npm test && npm run build",
     "setup:activitywatch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-activitywatch.ps1",
     "test": "vitest run",
     "test:e2e": "npm run build && node tests/e2e.mjs",

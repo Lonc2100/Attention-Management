@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "attention.electron-harness-lite/v1",
+  "kind": "incremental-electron",
+  "taskSystem": ".trellis",
+  "sourceRoots": {
+    "main": "src/main",
+    "preload": "src/preload",
+    "renderer": "src/renderer",
+    "shared": "src/shared"
+  },
+  "mainTargetLayers": [
+    "providers",
+    "repositories",
+    "services",
+    "ipc",
+    "runtime",
+    "bootstrap"
+  ],
+  "requiredScripts": [
+    "init:electron-harness-lite",
+    "context:check",
+    "lint:arch",
+    "test:structure",
+    "verify:harness",
+    "verify"
+  ]
+}

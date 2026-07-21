@@ -3,7 +3,7 @@ import {
   CodexWindowContextReader,
   matchVisibleCodexThread,
   parseCodexWindowContextOutput
-} from '../src/main/codex-window-context'
+} from '../src/main/providers/codex-visible-context'
 import type { CodexThreadSummary } from '../src/shared/contracts'
 
 const thread = (overrides: Partial<CodexThreadSummary>): CodexThreadSummary => ({
@@ -19,7 +19,13 @@ describe('Codex Windows current chat reader', () => {
   it('parses only the small JSON context emitted by UI Automation', () => {
     expect(parseCodexWindowContextOutput('{"threadName":"项目周报","projectLabel":"Attention-Management"}\r\n')).toEqual({
       threadName: '项目周报',
-      projectLabel: 'Attention-Management'
+      projectLabel: 'Attention-Management',
+      source: 'top-bar'
+    })
+    expect(parseCodexWindowContextOutput('{"threadName":"侧边栏项目","projectLabel":null,"source":"sidebar"}\r\n')).toEqual({
+      threadName: '侧边栏项目',
+      projectLabel: null,
+      source: 'sidebar'
     })
     expect(parseCodexWindowContextOutput('')).toBeNull()
     expect(() => parseCodexWindowContextOutput('not json')).toThrow('无法识别')
@@ -33,7 +39,8 @@ describe('Codex Windows current chat reader', () => {
 
     await expect(reader.readCurrentContext()).resolves.toEqual({
       threadName: '项目周报',
-      projectLabel: 'Attention-Management'
+      projectLabel: 'Attention-Management',
+      source: 'top-bar'
     })
     await expect(reader.readCurrentContext()).resolves.toBeNull()
     expect(run).toHaveBeenCalledTimes(2)
@@ -45,22 +52,22 @@ describe('visible Codex chat matching', () => {
     const recent = thread({ id: 'recent', name: '旧项目', recencyAt: 20 })
     const visible = thread({ id: 'visible', name: '新项目', recencyAt: 10 })
 
-    expect(matchVisibleCodexThread({ threadName: '新项目', projectLabel: 'Attention-Management' }, [recent, visible])).toEqual(visible)
+    expect(matchVisibleCodexThread({ threadName: '新项目', projectLabel: 'Attention-Management', source: 'sidebar' }, [recent, visible])).toEqual(visible)
   })
 
   it('disambiguates duplicate titles with the visible project label and cwd basename', () => {
     const alpha = thread({ id: 'alpha', cwd: 'D:\\work\\Alpha' })
     const beta = thread({ id: 'beta', cwd: 'D:\\work\\Beta' })
 
-    expect(matchVisibleCodexThread({ threadName: '项目周报', projectLabel: 'Beta' }, [alpha, beta])).toEqual(beta)
+    expect(matchVisibleCodexThread({ threadName: '项目周报', projectLabel: 'Beta', source: 'top-bar' }, [alpha, beta])).toEqual(beta)
   })
 
   it('refuses to guess when the visible chat has zero or multiple candidates', () => {
     const one = thread({ id: 'one', cwd: 'D:\\work\\Same' })
     const two = thread({ id: 'two', cwd: 'E:\\work\\Same' })
 
-    expect(matchVisibleCodexThread({ threadName: '不存在', projectLabel: null }, [one])).toBeNull()
-    expect(matchVisibleCodexThread({ threadName: '项目周报', projectLabel: 'Same' }, [one, two])).toBeNull()
-    expect(matchVisibleCodexThread({ threadName: '项目周报', projectLabel: 'Other' }, [one])).toBeNull()
+    expect(matchVisibleCodexThread({ threadName: '不存在', projectLabel: null, source: 'sidebar' }, [one])).toBeNull()
+    expect(matchVisibleCodexThread({ threadName: '项目周报', projectLabel: 'Same', source: 'top-bar' }, [one, two])).toBeNull()
+    expect(matchVisibleCodexThread({ threadName: '项目周报', projectLabel: 'Other', source: 'top-bar' }, [one])).toBeNull()
   })
 })

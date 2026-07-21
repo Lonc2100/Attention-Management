@@ -8,6 +8,7 @@ import type {
   IdleOverride
 } from '../shared/contracts'
 import {
+  DEFAULT_IDLE_THRESHOLD_MINUTES,
   classifyIdleIntervals,
   intersectIntervals,
   intervalSeconds,
@@ -118,7 +119,7 @@ export function classifyActivityDay(
   rules: ActivityRule[] = [],
   overrides: ActivityOverride[] = [],
   manualProjects: Record<string, string> = {},
-  idleThresholdMinutes = 15,
+  idleThresholdMinutes = DEFAULT_IDLE_THRESHOLD_MINUTES,
   idleOverrides: IdleOverride[] = []
 ): ClassifiedActivityDay {
   const samples = [...contextSamples].sort((a, b) => a.detectedAt - b.detectedAt)
@@ -227,6 +228,41 @@ export function classifyActivityDay(
           sample
         })
       }
+    }
+  }
+
+  // A watcher may have an AFK segment without a matching foreground-window
+  // event (for example while the window watcher is restarting). The user's
+  // reversible correction must still remain visible and removable instead of
+  // becoming an invisible persisted override. Do not invent an application or
+  // project for that residual time.
+  for (const idleOverride of idleOverrides) {
+    const start = Date.parse(idleOverride.start)
+    const end = Date.parse(idleOverride.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue
+    const covered = drafts
+      .filter((item) => item.idleOverrideId === idleOverride.id)
+      .map((item) => ({ start: item.startMs, end: item.endMs }))
+    for (const residual of subtractIntervals([{ start, end }], covered)) {
+      drafts.push({
+        id: `idle-override:${idleOverride.id}:${residual.start}:${residual.end}`,
+        start: new Date(residual.start).toISOString(),
+        end: new Date(residual.end).toISOString(),
+        seconds: (residual.end - residual.start) / 1000,
+        app: '',
+        title: '人工计入的低交互时间',
+        projectKey: null,
+        projectLabel: '人工计入工作',
+        attribution: 'application',
+        ruleId: null,
+        overrideId: null,
+        idleOverrideId: idleOverride.id,
+        classified: false,
+        correctable: false,
+        startMs: residual.start,
+        endMs: residual.end,
+        sample: null
+      })
     }
   }
 

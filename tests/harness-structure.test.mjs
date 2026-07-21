@@ -14,6 +14,9 @@ test('Harness-lite keeps the real Electron process structure', () => {
   for (const file of ['ARCHITECTURE.md', 'harness-lite.json', 'docs/context/index.md', 'scripts/electron-harness-lint.mjs']) {
     assert.equal(existsSync(path.join(root, file)), true, `missing ${file}`)
   }
+  for (const file of ['src/main/providers/codex-visible-context.ts', 'src/main/services/codex-attribution-service.ts']) {
+    assert.equal(existsSync(path.join(root, file)), true, `missing incremental Harness extraction: ${file}`)
+  }
 })
 
 test('Electron windows and preload preserve the security boundary', () => {
@@ -47,7 +50,7 @@ test('incremental adopter has no destructive or force mode', () => {
 })
 
 test('incremental adopter refuses conflicts before writing any Harness file', () => {
-  const fixture = path.join(root, 'tests', '.data', 'electron-harness-adoption-conflict')
+  const fixture = path.join(root, 'tests', '.data', `electron-harness-adoption-conflict-${process.pid}-${Date.now()}`)
   for (const directory of ['src/main', 'src/preload', 'src/renderer', 'src/shared']) {
     mkdirSync(path.join(fixture, directory), { recursive: true })
   }
@@ -71,7 +74,7 @@ test('incremental adopter refuses conflicts before writing any Harness file', ()
 })
 
 test('incremental adopter safely augments a non-empty Electron project', () => {
-  const fixture = path.join(root, 'tests', '.data', 'electron-harness-adoption-clean')
+  const fixture = path.join(root, 'tests', '.data', `electron-harness-adoption-clean-${process.pid}-${Date.now()}`)
   for (const directory of ['src/main', 'src/preload', 'src/renderer', 'src/shared']) {
     mkdirSync(path.join(fixture, directory), { recursive: true })
   }

@@ -4,6 +4,7 @@
 
 | 版本 | 标题 | 需求内容 | PRD 链接 |
 |---|---|---|---|
+| PRD-v0.7.5 | Codex 可见上下文与 AFK 默认校准 | 首次 Harness-lite Provider/Service 抽取；仅在当前可见聊天可唯一映射时归属，当前 Codex Desktop 无障碍树未公开侧边栏时安全待分类；新安装 AFK 默认 5 分钟且保留已有有效设置。 | [查看 PRD](../.trellis/tasks/07-21-codex-sidebar-afk/prd.md) |
 | PRD-v0.7.4 | 低交互时间与统一统计口径 | 默认以 15 分钟区分低交互推定工作与主要离开；首页、明细、热力图、个人规律和 Codex 归属统一口径。支持阈值设置及可撤销的单段人工计入，不改写 ActivityWatch 原始事件。 | [查看 PRD](../.trellis/tasks/07-19-v0-7-4-idle-confidence/prd.md) |
 | PRD-v0.7.3 | 跨午夜工作日边界 | 跨午夜连续活动归入前一工作日；主要休息结束后开启新工作日；白天后续长离开不切日。增加最晚离开电脑指标及可撤销的人工边界纠正。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-19-v0-7-3-workday-boundary/prd.md) |
 | PRD-v0.7.2 | 采集可靠性热修复 | 修复 ActivityWatch 子进程 stdout 背压；将全年查询改为 31 日上限和派生缓存；增加事件新鲜度、磁盘预警、进程退出与仅限自有进程的退避恢复。 | [查看 PRD](../.trellis/tasks/archive/2026-07/07-17-v0-7-2-collector-reliability/prd.md) |

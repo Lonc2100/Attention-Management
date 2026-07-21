@@ -95,13 +95,13 @@ describe('local persistence', () => {
       widgetMode: 'always-on-top',
       widgetExpanded: false,
       widgetPosition: null,
-      idleThresholdMinutes: 15
+      idleThresholdMinutes: 5
     })
     store.updateSettings({ widgetExpanded: true, widgetPosition: { x: 1200, y: 24, displayId: 'display-2' } })
     expect(new AppStore(file).getSettings()).toMatchObject({
       widgetExpanded: true,
       widgetPosition: { x: 1200, y: 24, displayId: 'display-2' },
-      idleThresholdMinutes: 15
+      idleThresholdMinutes: 5
     })
   })
 
@@ -110,9 +110,12 @@ describe('local persistence', () => {
     const file = join(directory, 'idle-v8.json')
     writeFileSync(file, JSON.stringify({ version: 7, settings: {}, records: {} }), 'utf8')
     const store = new AppStore(file)
-    expect(store.getSettings().idleThresholdMinutes).toBe(15)
+    expect(store.getSettings().idleThresholdMinutes).toBe(5)
     expect(store.updateSettings({ idleThresholdMinutes: 20 }).idleThresholdMinutes).toBe(20)
-    expect(store.updateSettings({ idleThresholdMinutes: 999 }).idleThresholdMinutes).toBe(15)
+    expect(store.updateSettings({ idleThresholdMinutes: 999 }).idleThresholdMinutes).toBe(5)
+    const existingFile = join(directory, 'idle-v8-existing-choice.json')
+    writeFileSync(existingFile, JSON.stringify({ version: 8, settings: { idleThresholdMinutes: 15 }, records: {} }), 'utf8')
+    expect(new AppStore(existingFile).getSettings().idleThresholdMinutes).toBe(15)
     store.addIdleOverride({
       id: 'idle-one', date: '2026-07-19', start: '2026-07-19T03:00:00.000Z',
       end: '2026-07-19T03:20:00.000Z', createdAt: 1000

@@ -24,7 +24,7 @@ const EMPTY_ACTIVITY: ActivitySummary = {
   activeSeconds: 0,
   afkSeconds: 0,
   softIdleSeconds: 0,
-  idleThresholdMinutes: 15,
+  idleThresholdMinutes: 5,
   apps: [],
   projects: [],
   codexActiveSeconds: 0,
@@ -246,7 +246,7 @@ function SettingsView({ settings, activity, busy, run, setSettings, setActivity,
     <SettingRow title="悬浮方式" note="置顶模式持续可见；桌面模式允许其他窗口覆盖它。"><select aria-label="悬浮方式" value={settings.widgetMode} disabled={busy === 'settings'} onChange={(event) => update({ widgetMode: event.target.value as Settings['widgetMode'] })}><option value="always-on-top">默认置顶</option><option value="desktop">停留桌面</option></select></SettingRow>
     <div className="settings-group separated"><p className="eyebrow">CAPTURE</p><h2>采集与启动</h2></div>
     <SettingRow title="时间采集" note="只记录前台应用、窗口标题和键鼠空闲状态；不录屏、不记录按键正文。"><button className={activity.tracking ? 'danger' : 'primary'} disabled={busy === 'tracking'} onClick={() => run('tracking', async () => { setActivity(await window.timeEfficiency.setTracking(!activity.tracking)); await onReload() })}>{busy === 'tracking' ? '处理中…' : activity.tracking ? '暂停采集' : '恢复采集'}</button></SettingRow>
-    <SettingRow title="主要离开判定" note="短暂无键鼠输入仍计为低交互工作；只有连续超过此时长才排除。默认 15 分钟更适合阅读、思考和观看素材。"><select aria-label="主要离开判定" value={settings.idleThresholdMinutes} disabled={busy === 'settings'} onChange={(event) => update({ idleThresholdMinutes: Number(event.target.value) })}>{[5, 10, 15, 20, 30].map((minutes) => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}</select></SettingRow>
+    <SettingRow title="主要离开判定" note="短暂无键鼠输入仍计为低交互工作；连续超过此时长才排除。新安装默认 5 分钟，适合阅读通常不超过 3 分钟的使用习惯；你可以随时改回更长阈值。"><select aria-label="主要离开判定" value={settings.idleThresholdMinutes} disabled={busy === 'settings'} onChange={(event) => update({ idleThresholdMinutes: Number(event.target.value) })}>{[5, 10, 15, 20, 30].map((minutes) => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}</select></SettingRow>
     <SettingRow title="登录 Windows 后自动启动" note="默认开启；你可以随时关闭。"><button className={`switch ${settings.launchAtLogin ? 'on' : ''}`} disabled={busy === 'settings'} onClick={() => update({ launchAtLogin: !settings.launchAtLogin })}><i /></button></SettingRow>
     <SettingRow title="早间计划提醒" note="若当时关机，会在下次启动时补提醒。"><input type="time" value={settings.morningReminder} onChange={(event) => update({ morningReminder: event.target.value })} /></SettingRow>
     <SettingRow title="晚间复盘提醒" note="初始固定时间；后续可根据个人规律调整。"><input type="time" value={settings.eveningReminder} onChange={(event) => update({ eveningReminder: event.target.value })} /></SettingRow>

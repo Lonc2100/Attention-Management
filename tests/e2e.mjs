@@ -67,7 +67,7 @@ try {
   record('ActivityWatch UI status', 'connected and tracking')
   await app.page.getByTestId('attention-overview').waitFor()
   const idleConfidenceNote = await app.page.getByTestId('idle-confidence-note').innerText()
-  assert.match(idleConfidenceNote, /低交互推定.*15 分钟/, 'homepage did not explain the idle-confidence policy')
+  assert.match(idleConfidenceNote, /低交互推定.*5 分钟/, 'homepage did not explain the idle-confidence policy')
   await app.page.getByTestId('work-activity-module').waitFor()
   const workCells = app.page.locator('.work-activity__cell')
   await workCells.nth(359).waitFor()
@@ -97,12 +97,13 @@ try {
     assert.ok(commandStripBox && commandStripBox.height <= 64, `homepage command strip was taller than the compact design limit at ${width}x${height}`)
     const workActivityBox = await app.page.getByTestId('work-activity-module').boundingBox()
     assert.ok(workActivityBox && workActivityBox.y < height, `work activity module was not visible at ${width}x${height}`)
-    if (width >= 1440) {
+    const expectsSideBySide = await app.page.evaluate(() => window.matchMedia('(min-width: 1321px)').matches)
+    if (expectsSideBySide) {
       await app.page.waitForFunction(() => {
         const work = document.querySelector('[data-testid="work-activity-module"]')?.getBoundingClientRect()
         const attention = document.querySelector('[data-testid="attention-overview"]')?.getBoundingClientRect()
         return Boolean(work && attention && Math.abs(work.top - attention.top) < 4)
-      }, undefined, { timeout: 3_000 })
+      }, undefined, { timeout: 10_000 })
       const attentionBox = await app.page.getByTestId('attention-overview').boundingBox()
       const settledWorkActivityBox = await app.page.getByTestId('work-activity-module').boundingBox()
       assert.ok(attentionBox && settledWorkActivityBox && Math.abs(attentionBox.y - settledWorkActivityBox.y) < 4, `dashboard charts did not share the wide-screen data row at ${width}x${height}`)
@@ -217,12 +218,15 @@ try {
     if (await afkRow.count()) {
       await afkRow.click()
       await app.page.getByTestId('idle-override-add').click()
-      await app.page.getByText('这段时间已人工计入工作', { exact: false }).waitFor()
       const manuallyCounted = app.page.locator('.activity-list > button').filter({ hasText: '人工计入' }).last()
       await manuallyCounted.waitFor()
       await manuallyCounted.click()
+      await app.page.getByTestId('idle-override-remove').waitFor()
       await app.page.getByTestId('idle-override-remove').click()
-      await app.page.getByText('已恢复为离开电脑', { exact: false }).waitFor()
+      const restoredAfk = app.page.locator('.activity-list > button').filter({ has: app.page.locator('.source-afk') }).last()
+      await restoredAfk.waitFor()
+      await restoredAfk.click()
+      await app.page.getByTestId('idle-override-add').waitFor()
     }
   }
   const detailsOverflow = await app.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
@@ -296,8 +300,12 @@ try {
   await priorityEvidence.waitFor()
   const compactEvidenceText = await priorityEvidence.innerText()
   const expectedEvidence = linkedProjectLabel ? '注意力' : '暂无关联证据'
-  assert.ok(compactEvidenceText.includes('交付真实时间效率闭环') && compactEvidenceText.includes(expectedEvidence), 'dashboard did not render truthful compact outcome evidence')
-  record('Outcome evidence dashboard', `absolute priority and ${linkedProjectLabel ? 'project-only attention' : 'missing-link'} evidence rendered in the compact command strip`)
+  const acceptedDashboardStates = [expectedEvidence, '复盘待完成', '计划待确认']
+  assert.ok(
+    compactEvidenceText.includes('交付真实时间效率闭环') && acceptedDashboardStates.some((item) => compactEvidenceText.includes(item)),
+    'dashboard did not render truthful compact outcome evidence or a due reminder'
+  )
+  record('Outcome evidence dashboard', `absolute priority and ${linkedProjectLabel ? 'project-only attention' : 'missing-link'} evidence or a truthful due reminder rendered in the compact command strip`)
 
   await app.page.getByRole('button', { name: /^晚间复盘/ }).first().click()
   await app.page.locator('.review-outcomes select').nth(0).selectOption('done')

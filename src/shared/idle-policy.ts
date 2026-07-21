@@ -1,6 +1,7 @@
 import type { ActivityEvent, IdleOverride } from './contracts'
 
-export const DEFAULT_IDLE_THRESHOLD_MINUTES = 15
+/** Default only for new/invalid settings. Existing valid user choices persist. */
+export const DEFAULT_IDLE_THRESHOLD_MINUTES = 5
 
 export interface TimeInterval {
   start: number

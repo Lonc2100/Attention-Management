@@ -19,7 +19,7 @@ describe('Codex foreground context tracker', () => {
       close: vi.fn()
     }
     const store = { addCodexContextSample: vi.fn().mockReturnValue(true) }
-    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: currentThread.name, projectLabel: 'wo-m' }) }
+    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: currentThread.name, projectLabel: 'wo-m', source: 'top-bar' }) }
     const now = Date.parse('2026-07-14T10:30:00.000Z')
     const tracker = new CodexContextTracker(activity, client, store, () => now, windowContext)
 
@@ -74,7 +74,7 @@ describe('Codex foreground context tracker', () => {
       close: vi.fn()
     }
     const store = { addCodexContextSample: vi.fn() }
-    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: currentThread.name, projectLabel: 'wo-m' }) }
+    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: currentThread.name, projectLabel: 'wo-m', source: 'top-bar' }) }
     const tracker = new CodexContextTracker(activity, client, store, () => Date.now(), windowContext)
 
     await tracker.sample('2026-07-14')
@@ -99,7 +99,7 @@ describe('Codex foreground context tracker', () => {
       close: vi.fn()
     }
     const store = { addCodexContextSample: vi.fn().mockReturnValue(true) }
-    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: 'B 项目', projectLabel: 'wo-m' }) }
+    const windowContext = { readCurrentContext: vi.fn().mockResolvedValue({ threadName: 'B 项目', projectLabel: 'wo-m', source: 'sidebar' }) }
     const tracker = new CodexContextTracker(activity, client, store, () => Date.now(), windowContext)
 
     await tracker.sample('2026-07-15')
@@ -119,7 +119,7 @@ describe('Codex foreground context tracker', () => {
     const store = { addCodexContextSample: vi.fn().mockReturnValue(true) }
     const windowContext = {
       readCurrentContext: vi.fn()
-        .mockResolvedValueOnce({ threadName: currentThread.name, projectLabel: 'wo-m' })
+        .mockResolvedValueOnce({ threadName: currentThread.name, projectLabel: 'wo-m', source: 'top-bar' })
         .mockResolvedValueOnce(null)
     }
     const tracker = new CodexContextTracker(activity, client, store, () => Date.now(), windowContext)
